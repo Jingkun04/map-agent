@@ -20,6 +20,18 @@ The whole app is one self-contained page: `dist/region-map-agent.html`. Open it 
 
 ## Build and test
 
+### Running the LLM stages locally (OpenRouter)
+
+```bash
+cp .env.example .env      # then put the group's OpenRouter key in OPENROUTER_API_KEY
+npm run serve             # builds, then serves http://localhost:8787
+```
+
+`server.js` holds the key and proxies `/api/llm` to OpenRouter; the page finds it via `/api/llm/health` and unlocks the
+Claude engine. The two tiers map to `OPENROUTER_MODEL_DEFAULT` / `OPENROUTER_MODEL_QUICK` (Sonnet 5.5 / Haiku 5.5 by
+default). The server logs tokens and cost for each call. `.env` is git-ignored. The proxy listens only on 127.0.0.1 and
+rejects cross-origin calls.
+
 ### Experiments
 
 ```bash
@@ -49,14 +61,15 @@ python3 tests/screenshots.py 0
 
 ## Notes
 
-- **Where each deployment runs.** The page has two engines, and which one is available depends entirely on where it is
-  opened. **Claude mode** needs `window.claude.use("sample")`, which only the claude.ai artifact runtime injects — open
-  `dist/region-map-agent.html` as an artifact and the Claude radio unlocks. **Anywhere else, including the GitHub Pages
-  copy at the repo root, there is no such object**, so the radio stays disabled and only the offline scripted policies
-  run. That is a property of the host, not a fault in the page: a static site cannot hold an API key without publishing
-  it, which is why the browser SDK gates direct browser calls behind an option named `dangerouslyAllowBrowser`. To run
-  the LLM stages from a static host, put an API key behind a small backend of your own and replace `llmJSON` in
-  `src/ui.js` with a call to it — do not inline a key into the page.
+- **Where each deployment runs.** The model stages need a model source, and the page tries three in order:
+  1. **claude.ai artifact runtime** — `window.claude.use("sample")`, injected only when `dist/region-map-agent.html` is
+     opened as an artifact.
+  2. **Local proxy** — `npm run serve` (see above). `server.js` holds the key from `.env`, and the page finds it via `/api/llm/health`.
+  3. **Bring your own key** — anywhere else, including the GitHub Pages copy, the page shows an "OpenRouter API key"
+     field. The key is checked against OpenRouter, kept only in that browser's `localStorage`, and sent only to
+     `openrouter.ai`; "忘记" removes it. The repo and the published page never contain a key.
+
+  With none of these the Claude radio stays disabled and only the offline scripted policies run.
 - **What the offline demo still shows.** Terrain, climate and hydrology, the verifier, the repair loop, the conflict
   analysis and the rule-based negotiator, the city planner and every street pattern all run with no model at all. What
   it cannot show is the four model stages: free text → WorldSpec, relation proposals, conflict resolution, and lore.

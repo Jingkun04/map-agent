@@ -74,7 +74,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 
 label.f { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
-select, input[type=number], textarea { width: 100%; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; padding: 7px 8px; }
+select, input[type=number], input[type=password], textarea { width: 100%; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; padding: 7px 8px; }
 textarea { resize: vertical; line-height: 1.55; font-size: 14px; }
 fieldset { border: 0; padding: 0; margin: 12px 0 0; }
 legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
@@ -82,6 +82,9 @@ legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .radio input { margin-top: 5px; accent-color: var(--chart); }
 .radio small { display: block; color: var(--muted); font-size: 12px; }
 .radio input:disabled + span { opacity: 0.5; }
+.keyrow { display: flex; gap: 6px; }
+.keyrow input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 13px; }
+.keyrow button { flex: none; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .btns { display: flex; gap: 8px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
 button { border: 1px solid var(--ink); background: transparent; border-radius: 4px; padding: 7px 14px; cursor: pointer; }
@@ -224,6 +227,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       <legend>规划与修正由谁完成</legend>
       <label class="radio"><input type="radio" name="engine" value="offline" id="engOff" checked><span>离线脚本策略<small>即时运行，按违规类型套规则，用来模拟 agent</small></span></label>
       <label class="radio"><input type="radio" name="engine" value="claude" id="engClaude" disabled><span>Claude<small>规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒</small></span></label>
+      <div id="keyWrap" hidden>
+        <label class="f" for="orKey">OpenRouter API key（只存在这个浏览器里）</label>
+        <div class="keyrow"><input type="password" id="orKey" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…"><button id="orKeyUse">使用</button><button id="orKeyForget" hidden>忘记</button></div>
+        <p class="hint" id="orKeyMsg" aria-live="polite" style="margin:6px 0 0">key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。</p>
+      </div>
       <div id="tierWrap" hidden><label class="f" for="tier">模型档位</label><select id="tier"><option value="default">default（更准）</option><option value="quick">quick（更快）</option></select></div>
     </fieldset>
     <label class="f" for="feedback">验证器给 agent 的反馈</label>
@@ -3450,24 +3458,145 @@ const curSnap = () => S.snaps[S.cur];
 const engine = () => document.querySelector('input[name="engine"]:checked').value;
 
 // ---------- Claude availability ----------
+// Three sources can supply a model, tried in order:
+//   1. the claude.ai artifact runtime (window.claude);
+//   2. the local proxy in server.js, which keeps the OpenRouter key on the machine and serves /api/llm;
+//   3. an OpenRouter key the viewer pastes in, kept only in this browser's localStorage and sent only to openrouter.ai.
+// The last is what lets a static host (GitHub Pages) run the model stages without publishing a key.
+const OR_API = "https://openrouter.ai/api/v1";
+const OR_MODELS = { default: "anthropic/claude-sonnet-5.5", quick: "anthropic/claude-haiku-5.5" };   // keep in step with server.js
+const OR_KEY_SLOT = "region-map-agent.openrouter-key";
+const keyStore = {
+  get() { try { return localStorage.getItem(OR_KEY_SLOT); } catch { return null; } },
+  set(v) { try { v ? localStorage.setItem(OR_KEY_SLOT, v) : localStorage.removeItem(OR_KEY_SLOT); } catch {} },
+};
+
+function unlockModel(sample, models, msg) {
+  S.sample = sample;
+  $("#engClaude").disabled = false;
+  $("#tier").options[0].text = `default（${models.default}）`;
+  $("#tier").options[1].text = `quick（${models.quick}）`;
+  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "ok";
+}
+function lockModel(msg) {
+  S.sample = null;
+  $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true;
+  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "off";
+}
+const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，也没有连上本地代理。在下方填入 OpenRouter API key 即可解锁模型阶段；"
+  + "不填就只跑离线脚本策略。";
+
 (async () => {
-  const st = $("#agentStatus");
   try {
     if (!window.claude || !window.claude.use) throw 0;
     const s = await window.claude.use("sample");
     if (!s) throw 0;
     S.sample = s;
     $("#engClaude").disabled = false;
-    st.textContent = "Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）";
-    st.dataset.state = "ok";
-  } catch {
-    // window.claude is injected by the claude.ai artifact runtime; on a plain static host it simply is not there.
-    // Say that, rather than letting it read as a failure.
-    st.textContent = "这个页面不在 claude.ai 的 artifact 运行时里，取不到模型调用接口，所以只能跑离线脚本策略。"
-      + "把 dist/region-map-agent.html 作为 artifact 打开，Claude 选项就会解锁。";
-    st.dataset.state = "off";
-  }
+    $("#agentStatus").textContent = "Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）";
+    $("#agentStatus").dataset.state = "ok";
+    return;
+  } catch {}
+  try {
+    if (location.protocol === "file:") throw 0;
+    const r = await fetch("api/llm/health", { cache: "no-store" });
+    const h = r.ok && await r.json();
+    if (!h || !h.ok) throw 0;
+    unlockModel(openRouterSample(proxyPost), h.models,
+      `本地 OpenRouter 代理可用：切换到 Claude 后，各阶段经 server.js 调用 ${h.models.default}，API key 只留在本机。`);
+    return;
+  } catch {}
+  // A plain static host (GitHub Pages) or a file opened from disk: offer the key field.
+  $("#keyWrap").hidden = false;
+  lockModel(NO_MODEL_MSG);
+  $("#orKeyUse").onclick = () => useKey($("#orKey").value.trim());
+  $("#orKey").onkeydown = e => { if (e.key === "Enter") useKey($("#orKey").value.trim()); };
+  $("#orKeyForget").onclick = () => {
+    keyStore.set(null); $("#orKey").value = ""; $("#orKeyForget").hidden = true;
+    $("#orKeyMsg").textContent = "已从这个浏览器删除 key。"; lockModel(NO_MODEL_MSG);
+  };
+  const saved = keyStore.get();
+  if (saved) { $("#orKey").value = saved; useKey(saved); }
 })();
+
+// Check the key against OpenRouter before unlocking, so a typo surfaces here rather than mid-run.
+async function useKey(key) {
+  const msg = $("#orKeyMsg");
+  if (!/^sk-or-/.test(key)) { msg.textContent = "这不像 OpenRouter 的 key（应以 sk-or- 开头）。"; return; }
+  msg.textContent = "正在验证 key…"; $("#orKeyUse").disabled = true;
+  try {
+    const r = await fetch(`${OR_API}/key`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
+    if (r.status === 401) { msg.textContent = "OpenRouter 不认这个 key（无效或已被撤销）。"; return; }
+    if (!r.ok) { msg.textContent = `验证失败（HTTP ${r.status}），稍后再试。`; return; }
+    const d = (await r.json()).data || {};
+    keyStore.set(key); $("#orKeyForget").hidden = false;
+    const left = d.limit_remaining != null ? `剩余额度 $${(+d.limit_remaining).toFixed(2)}` : "无额度上限";
+    msg.textContent = `key 有效，${left}。只保存在这个浏览器里，请求直接发往 openrouter.ai。`;
+    unlockModel(openRouterSample(directPost(key)), OR_MODELS, `已用你的 OpenRouter key 解锁：切换到 Claude 后，各阶段直接调用 ${OR_MODELS.default}。`);
+  } catch {
+    msg.textContent = "连不上 openrouter.ai，检查网络后再试。";
+  } finally { $("#orKeyUse").disabled = false; }
+}
+
+// Both transports return OpenRouter's SSE stream for one prompt.
+function proxyPost(prompt, tier, signal) {
+  return fetch("api/llm", { method: "POST", headers: { "Content-Type": "application/json" }, signal, body: JSON.stringify({ prompt, tier }) });
+}
+function directPost(key) {
+  return (prompt, tier, signal) => fetch(`${OR_API}/chat/completions`, {
+    method: "POST", signal,
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "region-map-agent" },
+    body: JSON.stringify({ model: OR_MODELS[tier] || OR_MODELS.default, stream: true, max_tokens: 8000, messages: [{ role: "user", content: prompt }] }),
+  });
+}
+
+// The same json(prompt, {modelTier, signal, onText}) contract as window.claude's sampler, over an OpenRouter stream.
+// Errors carry the codes llmJSON maps: cancelled, rate_limited, bad_key, invalid_json, or a plain status code.
+function openRouterSample(post) {
+  const fail = (code, detail) => { const e = new Error(detail || code); e.code = code; return e; };
+  const parse = text => {
+    const s = text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "");
+    try { return JSON.parse(s); } catch {}
+    const a = s.search(/[{[]/), b = Math.max(s.lastIndexOf("}"), s.lastIndexOf("]"));
+    if (a >= 0 && b > a) try { return JSON.parse(s.slice(a, b + 1)); } catch {}
+    throw fail("invalid_json", text.slice(0, 200));
+  };
+  return {
+    async json(prompt, opts = {}) {
+      let r;
+      try { r = await post(prompt, opts.modelTier, opts.signal); }
+      catch (e) { throw e && e.name === "AbortError" ? fail("cancelled") : fail("network"); }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        const detail = d.detail || (d.error && (d.error.message || d.error));
+        console.warn("[llm]", r.status, detail);
+        throw fail(r.status === 429 || r.status === 402 ? "rate_limited" : r.status === 401 ? "bad_key" : `http_${r.status}`, detail);
+      }
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = "", text = "";
+      try {
+        for (;;) {
+          const { done, value } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;          // ": OPENROUTER PROCESSING" keep-alives
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(data); } catch { continue; }
+            if (ev.error) throw fail(ev.error.code === 429 ? "rate_limited" : "upstream", ev.error.message);
+            const d = ev.choices && ev.choices[0] && ev.choices[0].delta;
+            if (d && d.content) { text += d.content; if (opts.onText) opts.onText({ text }); }
+            if (ev.usage) console.debug(`[llm] ${ev.model} in=${ev.usage.prompt_tokens} out=${ev.usage.completion_tokens}`, ev.usage.cost != null ? `$${ev.usage.cost}` : "");
+          }
+        }
+      } catch (e) { throw e && e.name === "AbortError" ? fail("cancelled") : e; }
+      return parse(text);
+    },
+  };
+}
 
 // ---------- presets ----------
 function initControls() {
@@ -3576,9 +3705,9 @@ async function llmJSON(prompt, what, item) {
     return out;
   } catch (e) {
     if (item) item.pending = null;
-    const map = { cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude" };
+    const map = { cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" };
     const msg = map[e && e.code] || `调用失败（${(e && e.code) || e}）`;
-    if (e && (e.code === "not_granted" || e.code === "sampling_disabled")) { $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true; }
+    if (e && (e.code === "not_granted" || e.code === "sampling_disabled" || e.code === "bad_key")) { $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true; }
     const err = new Error(msg); err.code = e && e.code; throw err;
   }
 }

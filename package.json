@@ -6,7 +6,8 @@
   "scripts": {
     "build": "python3 build.py",
     "test": "node tests/test_core.js && node tests/test_city.js",
-    "screenshots": "python3 tests/screenshots.py 0"
+    "screenshots": "python3 tests/screenshots.py 0",
+    "serve": "python3 build.py && node server.js"
   },
   "devDependencies": {
     "three": "0.128.0"

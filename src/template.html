@@ -74,7 +74,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 
 label.f { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
-select, input[type=number], textarea { width: 100%; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; padding: 7px 8px; }
+select, input[type=number], input[type=password], textarea { width: 100%; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; padding: 7px 8px; }
 textarea { resize: vertical; line-height: 1.55; font-size: 14px; }
 fieldset { border: 0; padding: 0; margin: 12px 0 0; }
 legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
@@ -82,6 +82,9 @@ legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .radio input { margin-top: 5px; accent-color: var(--chart); }
 .radio small { display: block; color: var(--muted); font-size: 12px; }
 .radio input:disabled + span { opacity: 0.5; }
+.keyrow { display: flex; gap: 6px; }
+.keyrow input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 13px; }
+.keyrow button { flex: none; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .btns { display: flex; gap: 8px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
 button { border: 1px solid var(--ink); background: transparent; border-radius: 4px; padding: 7px 14px; cursor: pointer; }
@@ -224,6 +227,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       <legend>规划与修正由谁完成</legend>
       <label class="radio"><input type="radio" name="engine" value="offline" id="engOff" checked><span>离线脚本策略<small>即时运行，按违规类型套规则，用来模拟 agent</small></span></label>
       <label class="radio"><input type="radio" name="engine" value="claude" id="engClaude" disabled><span>Claude<small>规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒</small></span></label>
+      <div id="keyWrap" hidden>
+        <label class="f" for="orKey">OpenRouter API key（只存在这个浏览器里）</label>
+        <div class="keyrow"><input type="password" id="orKey" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…"><button id="orKeyUse">使用</button><button id="orKeyForget" hidden>忘记</button></div>
+        <p class="hint" id="orKeyMsg" aria-live="polite" style="margin:6px 0 0">key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。</p>
+      </div>
       <div id="tierWrap" hidden><label class="f" for="tier">模型档位</label><select id="tier"><option value="default">default（更准）</option><option value="quick">quick（更快）</option></select></div>
     </fieldset>
     <label class="f" for="feedback">验证器给 agent 的反馈</label>
