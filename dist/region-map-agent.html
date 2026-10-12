@@ -4036,6 +4036,25 @@ function directPost(key) {
   });
 }
 
+// Patch the two mistakes models make most in JSON: a bare double quote inside a string (Chinese prose quoting a word,
+// "绿洲") and a trailing comma. A quote counts as closing only when the next non-space character could follow a string.
+function repairJSON(t) {
+  let out = "", inStr = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr && c === "\\") { out += c + (t[i + 1] ?? ""); i++; continue; }
+    if (c === '"') {
+      if (!inStr) { inStr = true; out += c; continue; }
+      let j = i + 1; while (j < t.length && /\s/.test(t[j])) j++;
+      if (j >= t.length || ",:}]".includes(t[j])) { inStr = false; out += c; } else out += '\\"';
+      continue;
+    }
+    if (inStr && (c === "\n" || c === "\r")) { out += c === "\n" ? "\\n" : ""; continue; }
+    out += c;
+  }
+  return out.replace(/,\s*([}\]])/g, "$1");
+}
+
 // The same json(prompt, {modelTier, signal, onText}) contract as window.claude's sampler, over an OpenRouter stream.
 // Errors carry the codes llmJSON maps: cancelled, rate_limited, bad_key, invalid_json, or a plain status code.
 function openRouterSample(post) {
@@ -4044,8 +4063,12 @@ function openRouterSample(post) {
     const s = text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "");
     try { return JSON.parse(s); } catch {}
     const a = s.search(/[{[]/), b = Math.max(s.lastIndexOf("}"), s.lastIndexOf("]"));
-    if (a >= 0 && b > a) try { return JSON.parse(s.slice(a, b + 1)); } catch {}
-    throw fail("invalid_json", text.slice(0, 200));
+    const body = a >= 0 && b > a ? s.slice(a, b + 1) : s;
+    try { return JSON.parse(body); } catch {}
+    try { return JSON.parse(repairJSON(body)); } catch (e) {
+      console.warn("[llm] unparseable reply:", text);
+      throw fail("invalid_json", String(e.message || e).slice(0, 120));
+    }
   };
   return {
     async json(prompt, opts = {}) {
@@ -4203,12 +4226,16 @@ function addTrace(item) { S.trace.push(item); renderTrace(); return item; }
 function refreshAll() { renderScrub(); renderMap(); renderChecks(); renderMetrics(); renderTrace(); renderLore(); renderCity(); updateEditButtons(); }
 
 // ---------- LLM helpers ----------
-async function llmJSON(prompt, what, item) {
+const JSON_NOTE = `
+
+Format: reply with one valid JSON object and nothing else. Inside string values never use a bare ASCII double quote —
+quote words with 「」 instead.`;
+async function llmJSON(prompt, what, item, retried) {
   S.llmCalls++;
   const t = performance.now();
   if (item) { item.pending = `${what}：等待 Claude…`; renderTrace(); }
   try {
-    const out = await S.sample.json(prompt, {
+    const out = await S.sample.json(prompt + JSON_NOTE, {
       modelTier: $("#tier").value, signal: S.ctl.signal, cache: false,
       onText: ({ text }) => { if (item) { item.pending = `${what}：Claude 正在输出（${text.length} 字符）`; renderTrace(); } },
     });
@@ -4216,6 +4243,11 @@ async function llmJSON(prompt, what, item) {
     return out;
   } catch (e) {
     if (item) item.pending = null;
+    // one retry for a malformed reply, telling the model what went wrong; everything else fails straight away
+    if (e && e.code === "invalid_json" && !retried) {
+      console.warn(`[llm] ${what}: invalid JSON (${e.message}), retrying once`);
+      return llmJSON(prompt + `\n\nYour previous reply to this exact request was not valid JSON (${String(e.message || "").slice(0, 80)}). Answer again.`, what, item, true);
+    }
     const map = { cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" };
     const msg = map[e && e.code] || `调用失败（${(e && e.code) || e}）`;
     if (e && (e.code === "not_granted" || e.code === "sampling_disabled" || e.code === "bad_key")) { $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true; }
@@ -4628,8 +4660,15 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     }
     const item = addTrace({ kind: "iter", title: `${title} 第 ${it} 轮`, before: rep.fails.length });
     let pol;
-    if (eng === "claude") pol = await llmRepair(W, rep, hist, fb, item);
-    else pol = fb === "structured" ? scriptedStructured(W, rep, hist) : scriptedBlind(W, rep, hist, it);
+    try {
+      if (eng === "claude") pol = await llmRepair(W, rep, hist, fb, item);
+      else pol = fb === "structured" ? scriptedStructured(W, rep, hist) : scriptedBlind(W, rep, hist, it);
+    } catch (e) {
+      if (e && e.code === "cancelled") throw e;
+      // a failed round ends the loop but keeps the map built so far; the run still gets its final review
+      item.after = rep.fails.length; item.body = `本轮修正决策失败（${e.message || e}），保留当前地图并结束修正循环。`; renderTrace();
+      break;
+    }
     item.body = pol.analysis;
     if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + "（agent 没有给出新动作，循环结束）"; renderTrace(); break; }
     const r = applyActions(W, pol.actions);
