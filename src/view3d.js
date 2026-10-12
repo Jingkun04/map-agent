@@ -1,7 +1,8 @@
 // ===================== 3D VIEW (three.js diorama) =====================
 const V3 = { ok: false, SEG: 384, decals: [], cityObjs: [], SIZE: 1000, BASE: -80, exag: 1.6, dirty: true, labels: [], snapRef: null, exagRef: null, texKey: null };
 const MS = 2.5; // marker scale (diorama buildings are drawn larger than life)
-function hScale() { return 190 * V3.exag; }
+// at larger map scales the same relief spans more km per pixel, so it is drawn flatter
+function hScale() { const sn = typeof curSnap === "function" && curSnap(); const fq = sn ? (SCALES[sn.W.spec.scale] || SCALES.region).fq : 1; return 190 * V3.exag / Math.sqrt(fq); }
 
 function init3D() {
   if (!window.THREE) return false;
@@ -83,7 +84,7 @@ function init3D() {
     });
     setupControls();
     new ResizeObserver(resize3D).observe($("#view3d"));
-    resize3D();
+    resize3D(); setView("oblique");
     const loop = () => { if (V3.dirty && S.view === "3d") { V3.dirty = false; place3D(); V3.r.render(V3.scene, V3.cam); updateLabels(); } requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
     return true;
@@ -131,8 +132,10 @@ function flyTo(sid) {
 }
 function setView(preset) {
   const c = V3.ctl; V3.fly = null;
-  if (preset === "top") Object.assign(c, { theta: 0, phi: 0.02, radius: 1900 });
-  else Object.assign(c, { theta: -0.28, phi: 0.86, radius: 1950 });
+  // frame the diorama to the canvas: a wide canvas is limited by its height, so the camera can come closer
+  const a = V3.cam.aspect || 1, fit = clamp(1.12 / a, 0.58, 0.95);
+  if (preset === "top") Object.assign(c, { theta: 0, phi: 0.02, radius: 1900 * Math.max(fit, 0.9) });
+  else Object.assign(c, { theta: -0.28, phi: 0.86, radius: 1950 * fit });
   c.target.set(0, preset === "top" ? 0 : -10, preset === "top" ? 0 : 30);
   V3.dirty = true;
 }
@@ -492,6 +495,7 @@ function buildMarkers3D(sn) {
     for (const l of W.hy.lakes.slice(0, 5)) { const [x, z] = cellToWorld(l.cx, l.cy); addLabel("river", esc(l.name), x, worldY(l.cx, l.cy) + 3, z); }
   }
   const ready = plansReady(W);
+  if (S.layers.settle) for (const hm of hamlets(W)) { const [x, z] = cellToWorld(hm.x, hm.y); addLabel("hamlet", "<i>·</i><span class=\"nm\"> " + esc(hm.name) + "</span>", x, Math.max(0, worldY(hm.x, hm.y)) + 3, z); }
   if (S.layers.settle) for (const s of W.spec.settlements) {
     const [x, z] = cellToWorld(...W.P.pos[s.id]);
     let y;
@@ -519,6 +523,7 @@ function buildMarkers3D(sn) {
 }
 function updateLabels() {
   const box = $("#view3d"), w = box.clientWidth, h = box.clientHeight, v = new THREE.Vector3();
+  $("#labels3d").classList.toggle("far", V3.ctl.radius > 760);      // hamlet names only once the camera is close
   for (const L of V3.labels) {
     v.copy(L.v).project(V3.cam);
     if (v.z > 1 || v.x < -1.2 || v.x > 1.2 || v.y < -1.2 || v.y > 1.2) { L.el.style.display = "none"; continue; }

@@ -47,6 +47,19 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .panel h2 { font-size: 19px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .step { font-family: var(--serif); font-size: 13px; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-grid; place-items: center; flex: none; transform: translateY(-2px); }
 .lore-panel { grid-column: 1 / -1; }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
+.examples button:hover { border-color: var(--ink); color: var(--ink); }
+#layoutBtn[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+/* big-map layout: the map takes the whole first row and fills the viewport height; the panels move below it */
+@media (min-width: 1181px) {
+  body.wide .grid { grid-template-columns: 320px minmax(0, 1fr) 380px; }
+  body.wide .map-panel { grid-column: 1 / -1; grid-row: 1; }
+}
+body.wide .map-panel { order: -1; }
+body.wide #view3d { aspect-ratio: auto; height: max(480px, calc(100vh - 210px)); }
+body.wide #map, body.wide #gmCanvas { width: min(100%, max(480px, calc(100vh - 210px))); margin: 0 auto; }
+body.wide .canvasbox { background: #d7e0e0; }
 .city-panel { grid-column: 1 / span 2; }
 .city-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .city-tabs button { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; font-size: 13.5px; border-color: var(--line); font-family: var(--serif); font-weight: 600; }
@@ -122,6 +135,9 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 .l3.mtn { font-weight: 700; font-size: 16px; letter-spacing: 0.25em; }
 .l3.river { font-style: italic; font-size: 12.5px; color: #24506a; }
 .l3.region { font-family: var(--sans); font-size: 12px; color: rgba(31,43,46,0.55); }
+.l3.hamlet { font-size: 11px; color: rgba(31,43,46,0.8); }
+.l3.hamlet i { font-style: normal; font-weight: 700; font-size: 16px; }
+#labels3d.far .l3.hamlet .nm { display: none; }
 .l3.hl { color: #9a6710; }
 .l3.badge { font-family: var(--sans); font-size: 11px; font-weight: 600; color: #fff; background: #b4235f; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; text-shadow: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 .l3.badge.dec { background: #56666a; }
@@ -217,12 +233,13 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 </header>
 <main class="grid">
   <section class="panel" aria-labelledby="h1s">
-    <h2 id="h1s"><span class="step">1</span>描述与设置</h2>
-    <label class="f" for="preset">预设</label>
-    <select id="preset"></select>
-    <p class="hint" style="margin:6px 0 0">图幅 1024 × 1024 km，512 × 512 格，北在上。</p>
-    <label class="f" for="desc">世界观描述</label>
-    <textarea id="desc" rows="9"></textarea>
+    <h2 id="h1s"><span class="step">1</span>描述你的世界</h2>
+    <label class="f" for="desc">一句话也行，模型会把世界补全</label>
+    <textarea id="desc" rows="7" placeholder="比如：北方冰海上的维京群岛"></textarea>
+    <div class="examples" id="examples" aria-label="示例描述"></div>
+    <div class="btns"><button class="primary" id="run">生成世界</button><button type="button" id="randomBtn" title="抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型">随机世界</button><button id="stop" hidden>停止</button></div>
+    <p id="busy" class="hint" aria-live="polite" style="margin:6px 0 0"></p>
+    <p class="hint" id="scaleHint" style="margin:6px 0 0"></p>
     <fieldset>
       <legend>规划与修正由谁完成</legend>
       <label class="radio"><input type="radio" name="engine" value="offline" id="engOff" checked><span>离线脚本策略<small>即时运行，按违规类型套规则，用来模拟 agent</small></span></label>
@@ -234,20 +251,22 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       </div>
       <div id="tierWrap" hidden><label class="f" for="tier">模型档位</label><select id="tier"><option value="default">default（更准）</option><option value="quick">quick（更快）</option></select></div>
     </fieldset>
-    <label class="f" for="feedback">验证器给 agent 的反馈</label>
-    <select id="feedback">
-      <option value="structured">结构化违规报告</option>
-      <option value="binary">只告诉通过或不通过</option>
-      <option value="none">不反馈，只生成一次</option>
-    </select>
-    <label class="f" for="maxIter">最多迭代轮数</label>
-    <input type="number" id="maxIter" value="6" min="1" max="10">
-    <div class="btns"><button class="primary" id="run">生成并修正</button><button id="stop" hidden>停止</button><span id="busy" aria-live="polite"></span></div>
+    <details><summary>高级设置（实验用）</summary>
+      <label class="f" for="feedback">验证器给 agent 的反馈</label>
+      <select id="feedback">
+        <option value="structured">结构化违规报告</option>
+        <option value="binary">只告诉通过或不通过</option>
+        <option value="none">不反馈，只生成一次</option>
+      </select>
+      <label class="f" for="maxIter">最多迭代轮数</label>
+      <input type="number" id="maxIter" value="6" min="1" max="10">
+    </details>
     <details><summary>当前 WorldSpec</summary><pre id="specView">（运行后显示）</pre></details>
   </section>
 
-  <section class="panel" aria-label="地图">
+  <section class="panel map-panel" aria-label="地图">
     <div class="viewbar">
+      <button type="button" id="layoutBtn" aria-pressed="true" title="地图占满整行，设置和检查面板移到下方">大图布局</button>
       <div class="seg" role="group" aria-label="视图"><button type="button" data-view="3d" aria-pressed="true">3D 沙盘</button><button type="button" data-view="2d" aria-pressed="false">平面地图</button><button type="button" data-view="game" aria-pressed="false">游戏地图</button></div>
       <span id="ctlgame" hidden><button type="button" id="gmAll">区域图</button><button type="button" id="gmZoom">聚焦城镇</button><label><input type="checkbox" id="gmFog" checked>探索迷雾</label><button type="button" id="gmRedraw">重新渲染</button><span class="hint" style="margin:0">点击传送点图标可放大该城镇，再点一次返回</span></span>
       <span id="ctl3d"><label>地形夸张 <input type="range" id="exag" min="0.5" max="3" step="0.1" value="1.6"></label><button type="button" id="camReset">斜视</button><button type="button" id="camTop">俯视</button><span class="hint" style="margin:0">拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去</span></span>
@@ -255,7 +274,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
     <div class="mapbar">
       <dl id="metrics"></dl>
       <div class="layers">
-        <label>底图 <select data-layer="base"><option value="biome">生物群系</option><option value="elev">高程</option></select></label>
+        <label>底图 <select data-layer="base"><option value="atlas">地图册</option><option value="biome">地形浮雕</option><option value="elev">高程</option></select></label>
         <label><input type="checkbox" data-layer="rivers" checked>水系</label>
         <label><input type="checkbox" data-layer="settle" checked>聚落</label>
         <label><input type="checkbox" data-layer="marks" checked>违规标记</label>

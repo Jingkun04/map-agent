@@ -96,5 +96,18 @@ python3 tests/screenshots.py 0
   a hospital and factories; a landmark outside the vocabulary is substituted by one with the same function or dropped.
   Nothing here touches geography: the style decides how a settlement is drawn, never where it is, and the verifier's
   checks are unchanged by it. Panel 4 has era / pattern / wall controls that re-plan the towns without re-running the agent.
-- **Scale**: 1 cell = 2 km. Settlements are drawn at an exaggerated, map-style scale (a city plan is about 28 km across).
+- **World shape and invention**: from a one-line description the planner fills the world out instead of returning a
+  near-empty spec. It picks a `landform` (coast, continent, archipelago, islands, peninsula, isthmus, inland sea, fjords,
+  volcanic island, shattered, lakeland, highland — each a seeded recipe of land/sea/relief primitives in
+  `landformRecipe`), a `scale`, a `climate_zone` (temperature × humidity, which shifts biomes up to ice, savanna and
+  jungle), angled ranges, name pools for rivers, lakes and hamlets in one naming culture, and settlements up to 20.
+  Everything the author did not write is marked `invented`: its constraints count as proposals, so the negotiator gives
+  them up before anything explicit, and `compareSpecs` scores extraction on the author's items only. `hamlets(W)` adds
+  unverified background villages so the map reads as inhabited. All of these fields are optional, and a spec without them
+  derives bit-for-bit the same world as before, so the benchmark and `results/` stay reproducible.
+- **Random worlds**: the "随机世界" button draws a whole spec from a seed (`randomSpec`), so the offline page shows the
+  same range without a model.
+- **Scale**: the grid is always 512 × 512; `scale` sets 2 / 4 / 8 km per cell (region 1024 km, kingdom 2048 km,
+  continent 4096 km) and makes terrain features proportionally finer. Settlements are drawn at an exaggerated,
+  map-style scale (a city plan is about 28 cells across).
 - **Scaling rule**: cell-based thresholds in `core.js` are tuned for N = 512. `SC = N / 256` scales most of them, but re-run `tests/test_core.js` after changing N.

@@ -112,6 +112,7 @@ function gmCollectIcons(W, size) {
       for (const L of ls) push(GM_ICON[L.kind].kind, LANDMARK[L.kind].zh, P.CX + L.u, P.CY + L.v, base + 2, s.id, true);
     }
   }
+  if (!detail) for (const hm of hamlets(W)) push("hamlet", hm.name, hm.x, hm.y, sampleD(V3.D, hm.x, hm.y) + 2);
   if (!detail) for (const m of W.spec.mountains) {
     const pk = mountainPeaks(W).find(q => q.m.id === m.id); if (!pk) continue;
     push("terrain", m.name, pk.cell[0], pk.cell[1], sampleD(V3.D, pk.cell[0], pk.cell[1]) + 4);
@@ -228,6 +229,16 @@ function gmCompose(ctx, W, size, shot, ready) {
     if (!ok) continue;                                  // crowded: keep the icon, drop the name
     placed.push({ x: ic.px, y, w });
     gmDrawLabel(ctx, ic.label, ic.px, y, font, GM.dim);
+  }
+  for (const ic of GM.icons) {                          // hamlets: a dot, and a name only where there is room
+    if (ic.kind !== "hamlet") continue;
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 4; ctx.fillStyle = GM.gold;
+    ctx.beginPath(); ctx.arc(ic.px, ic.py, 4, 0, 7); ctx.fill(); ctx.restore();
+    const font = `500 20px ${SERIF}`;
+    ctx.font = font; const w = ctx.measureText(ic.label).width;
+    if (!fits(ic.px, ic.py - 16, w, 18)) continue;
+    placed.push({ x: ic.px, y: ic.py - 16, w });
+    gmDrawLabel(ctx, ic.label, ic.px, ic.py - 16, font, GM.dim);
   }
   for (const ic of GM.icons) {
     if (ic.kind !== "waypoint") continue;

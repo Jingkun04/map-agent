@@ -1,12 +1,14 @@
 // ===================== UI =====================
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+// yield to the browser between steps; a hidden tab never fires animation frames, so fall back to a timer there
+// (otherwise switching tabs mid-run would freeze the agent loop)
+const frame = () => new Promise(r => document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)));
 
 const S = {
   spec: null, snaps: [], cur: -1, trace: [], lore: null, sample: null, running: false, ctl: null,
   focus: null, highlight: null, llmCalls: 0, t0: 0, elapsed: 0,
-  layers: { base: "biome", rivers: true, settle: true, marks: true, grid: true }, view: "3d",
+  layers: { base: "atlas", rivers: true, settle: true, marks: true, grid: true }, view: "3d",
 };
 const last = () => S.snaps[S.snaps.length - 1];
 const curSnap = () => S.snaps[S.cur];
@@ -29,6 +31,7 @@ const keyStore = {
 function unlockModel(sample, models, msg) {
   S.sample = sample;
   $("#engClaude").disabled = false;
+  if (!S.running) { $("#engClaude").checked = true; $("#tierWrap").hidden = false; }   // a prompt-first page wants the model by default
   $("#tier").options[0].text = `default（${models.default}）`;
   $("#tier").options[1].text = `quick（${models.quick}）`;
   $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "ok";
@@ -155,10 +158,15 @@ function openRouterSample(post) {
 
 // ---------- presets ----------
 function initControls() {
-  const sel = $("#preset");
-  PRESETS.forEach((p, k) => sel.add(new Option(p.label, k)));
-  sel.onchange = () => { $("#desc").value = PRESETS[+sel.value].text; };
+  // example prompts: clicking one only fills the box. The four presets double as examples because each carries a
+  // hand-written WorldSpec, which is what lets the offline engine run them (and what the experiments score against).
+  $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
+  $("#examples").querySelectorAll("button").forEach(b => b.onclick = () => { $("#desc").value = EXAMPLES[+b.dataset.k].text; $("#desc").focus(); });
   $("#desc").value = PRESETS[0].text;
+  $("#randomBtn").onclick = () => { newRandomWorld(); runAgent({ eng: "offline" }); };
+  $("#layoutBtn").onclick = () => setWide(!document.body.classList.contains("wide"));
+  let wide = true; try { wide = localStorage.getItem("region-map-agent.layout") !== "side"; } catch {}
+  setWide(wide);
   for (const r of REGIONS) { $("#editR").add(new Option(REGION_ZH[r] + "部", r)); $("#ridgeR").add(new Option(REGION_ZH[r] + "部", r)); }
   document.querySelectorAll('input[name="engine"]').forEach(el => el.onchange = () => { $("#tierWrap").hidden = engine() !== "claude"; });
   $("#run").onclick = () => runAgent();
@@ -202,10 +210,30 @@ function initControls() {
   $("#camTop").onclick = () => { setView("top"); };
 }
 const READOUT_HINT = "把鼠标移到地图上查看格点信息。";
+function setWide(on) {
+  document.body.classList.toggle("wide", on);
+  $("#layoutBtn").setAttribute("aria-pressed", String(on));
+  try { localStorage.setItem("region-map-agent.layout", on ? "wide" : "side"); } catch {}
+  if (V3 && V3.ok) { resize3D(); setView("oblique"); }
+  if (S.view === "game") renderGameMap(true);
+}
+const EXAMPLES = [
+  { label: "沙漠绿洲帝国", text: "一个被沙漠包围的绿洲帝国" },
+  { label: "维京群岛", text: "北方冰海上的维京群岛" },
+  { label: "热带火山岛", text: "热带海上的一座火山岛，岛上有古老的神庙和走私者的港口" },
+  { label: "峡湾王国", text: "寒冷多雨的峡湾海岸，山民王国沿着峡湾修建堡垒" },
+  ...PRESETS.map(p => ({ label: p.label, text: p.text })),
+];
+// a random world skips the planner: its WorldSpec is drawn from a seed, and the description is a summary of it
+function newRandomWorld() {
+  S.randomSpec = randomSpec(Math.floor(Math.random() * 1e6));
+  S.randomDesc = describeSpec(S.randomSpec);
+  $("#desc").value = S.randomDesc;
+}
 function showCell(W, x, y) {
   const i = y * N + x, rel = W.h[i] - W.P.sea;
   const elev = W.ocean[i] ? `水深约 ${Math.round(-rel * 6000)} m` : `海拔约 ${Math.round(Math.max(0, rel) * 6000)} m`;
-  $("#readout").textContent = `${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * KM_PER_CELL} km、北界 ${y * KM_PER_CELL} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`;
+  $("#readout").textContent = `${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * kmOf(W)} km、北界 ${y * kmOf(W)} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`;
 }
 function setViewMode(v) {
   if ((v === "3d" || v === "game") && !(V3 && (V3.ok || init3D()))) v = "2d";
@@ -267,17 +295,42 @@ async function llmJSON(prompt, what, item) {
   }
 }
 
-const SPEC_SCHEMA = `{"name": string, "seed": integer, "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
- "mountains": [{"name": string, "region": R, "orientation": "EW"|"NS"}],
+const SPEC_SCHEMA = `{"name": string, "seed": integer,
+ "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland",
+ "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
+ "scale": "region"|"kingdom"|"continent",
+ "climate_zone": {"temperature": "polar"|"cold"|"temperate"|"warm"|"hot", "humidity": "arid"|"dry"|"normal"|"humid"},
+ "mountains": [{"name": string, "region": R, "angle": 0-179, "length": "short"|"medium"|"long", "invented": boolean}],
  "min_major_rivers": 0-6, "min_lakes": 0-4,
  "settlements": [{"name": string, "type": "port"|"city"|"town"|"village"|"fortress", "region": R,
                   "requires": subset of ["coast","river_mouth","on_river","lakeside","near_mountain","accessible","defensible"],
                   "proposed": subset of "requires" — the ones YOU inferred rather than read,
+                  "invented": true if the description never mentions this settlement,
                   "rationale": short Chinese sentence saying why the proposed ones follow}],
+ "character": [{"metric": M, "level": "none"|"low"|"moderate"|"high"|"dominant", "why": short Chinese reason}
+               | {"metric": "islands", "min": integer, "max": integer, "why": ...}],
+ "names": {"rivers": [8-12 names], "lakes": [4-8 names], "places": [30-50 hamlet names]},
+ "hamlets": "none"|"sparse"|"normal"|"dense",
  "style": {"era": "medieval"|"modern"|"future"|"alien", "street_pattern": "organic"|"grid"|"radial"|"ring"|"terraced",
            "block_scale": 0.5-2, "building_height": 0.5-4, "walls": "always"|"never"|"auto",
            "landmarks": subset of ["plaza","cathedral","church","chapel","cityhall","market","hospital","clinic","school","library","station","factory","keep","lighthouse"]}}
-R is one of NW, N, NE, W, C, E, SW, S, SE (a 3x3 grid, north is up). The map is 1024 km across, 1 cell = 2 km.
+R is one of NW, N, NE, W, C, E, SW, S, SE (a 3x3 grid, north is up). The map is a 512 x 512 grid; "scale" sets how much
+ground it covers: region = 1024 km across (a province), kingdom = 2048 km, continent = 4096 km.
+
+landform — the shape of land and sea, drawn fresh from the seed each time:
+  coast: mainland with the sea on ocean_side, bays and offshore islets · continent: one large landmass ringed by sea
+  archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
+  isthmus: two landmasses joined by a narrow neck · inland_sea: land around an enclosed sea with one strait out
+  fjords: a mountainous coast cut by long narrow inlets · volcanic_island: one island around a volcanic peak
+  shattered: a landmass broken by winding straits · lakeland: landlocked, dotted with lakes · highland: landlocked plateau split by a rift valley
+mountains.angle — the direction a range runs, in degrees: 0 = east-west, 90 = north-south, 45 = from NW to SE... any value.
+climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and savanna, polar gives ice and tundra.
+character — measurable expectations about the map as a whole. M is one of:
+  land_share (land / whole map) · lake_share · mountain_share · desert_share (desert + salt flat) · grass_share
+  (grassland, steppe, savanna) · forest_share · cold_share (ice, tundra, snow) · wetland_share — each a share of the land —
+  and islands (number of separate landmasses). Levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.
+  Typical values: a temperate coast is ~60-80% land with lake_share ~2-5%; lakeland lake_share 10-20%; an archipelago
+  has 5-12 landmasses and land_share 25-45%.
 
 What the checkable requirements mean:
   coast / river_mouth / on_river / lakeside / near_mountain — the site is next to that feature
@@ -286,37 +339,63 @@ What the checkable requirements mean:
   (relations between settlements are proposed later, once the rivers and roads actually exist)`;
 
 async function llmPlan(desc, item) {
-  const prompt = `You turn a worldbuilding description into a WorldSpec for a procedural regional map generator.
+  const prompt = `You turn a worldbuilding description into a WorldSpec for a procedural map generator. The map should
+read as a real, inhabited, distinctive place — something that sparks the reader's imagination — not a generic square of land.
 
 Reply with only one JSON object of this shape:
 ${SPEC_SCHEMA}
 
-You do three jobs at once.
+You do five jobs at once. Do the first one first: everything after it must serve it.
 
-1. HARD CONSTRAINTS — encode what the description states. Do not invent these.
+0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-5 "character"
+   expectations that the description implies and a reader would check at a glance: a desert empire is dominated by
+   desert and has almost no lakes; a Viking archipelago has many islands and a cold climate; a jungle kingdom is
+   mostly forest. Each needs a Chinese "why". These rank ABOVE every site constraint: when a town's requirement
+   would break the world's character (a lakeside town in a desert with no lakes), the town gives way, not the world.
+   Then choose landform, climate_zone and scale so that the character holds.
 
-2. PROPOSED CONSTRAINTS — add the geographic conditions that the description *implies* but does not state, and mark
-   every one of them in "proposed" (for settlement requirements) or with "source": "proposed" (for relations).
-   Each needs a one-line "rationale" in Chinese. Examples of the reasoning wanted:
+1. HARD CONSTRAINTS — encode everything the description states, faithfully. These are the author's and are never
+   marked invented or proposed.
+
+2. INVENTION — the description may be one sentence. Fill the world out so it is rich and specific to THIS prompt:
+   - Choose the landform, scale, climate_zone, wind and seed that best fit the mood and setting, and vary them between
+     prompts; a desert empire, a frozen archipelago and a river delta should look nothing alike. If the description
+     implies size ("an empire", "a continent", "a whole kingdom"), use a larger scale; a valley or county stays "region".
+   - Bring the map to roughly 8-16 named settlements and 2-5 mountain ranges in total, adding what the setting
+     implies (a capital, its ports, frontier forts, mining towns, holy sites, trading posts). Mark each added
+     settlement and range "invented": true; give every invented settlement at least one requirement so it sits
+     somewhere meaningful, and a Chinese rationale. Never contradict or crowd out what the author wrote: if the author
+     lists many places, add fewer.
+   - Write names in the description's language with one consistent naming culture that fits the setting (Nordic,
+     desert, East Asian, Celtic, alien...). Supply "names": river, lake and hamlet name pools in that same culture.
+     Set "hamlets" to "normal" unless the setting is empty wilderness ("sparse") or crowded heartland ("dense").
+
+3. PROPOSED CONSTRAINTS — add the geographic conditions that the description *implies* for the author's own
+   settlements but does not state, and list them in "proposed" with a one-line Chinese "rationale":
      a prosperous trading town needs "accessible" — wealth follows traffic, and a town walled in by mountains cannot trade
      a border fortress needs "defensible" — it exists to hold ground
      a mill town belongs on a river; a fishing village belongs on the coast
-   Propose only what the seven checkable site predicates above can express. Do NOT propose relations between
-   settlements here: the rivers and roads do not exist yet, so any claim about upstream/downstream or travel time
-   would be a guess. A later stage proposes those against the real map. Atmosphere ("常年有雾",
-   "闹鬼的矿镇") is NOT a constraint — leave it out; the narrative layer will use it.
-   Be willing to propose: a verifier checks each one, and conflicts are reported rather than silently accepted.
-   Proposed constraints are relaxed before explicit ones when something is impossible, so a wrong guess is cheap.
-   As a rule of thumb, propose between one and two per settlement.
+   Propose only what the seven checkable site predicates can express. Do NOT propose relations between settlements
+   here: the rivers and roads do not exist yet. Atmosphere ("常年有雾", "闹鬼的矿镇") is NOT a constraint.
+   Proposed and invented items are relaxed before explicit ones when something is impossible, so a guess is cheap.
 
-3. STYLE PROFILE — read the era and culture off the description and fill "style". This drives how towns are drawn,
+4. STYLE PROFILE — read the era and culture off the description and fill "style". This drives how towns are drawn,
    never where things go: a medieval town is organic with walls and a cathedral; a modern city is a grid with a station,
    hospital and factories, taller buildings and no walls; a future or alien settlement can be radial or terraced with
    much taller structures. Pick "landmarks" as the vocabulary that fits that world.
 
 Rules:
-- "all" means an island, "none" means landlocked.
-- At most 6 mountains and 12 settlements; keep names in the description's language.
+- ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
+  "none" for lakeland and highland, the sea side for coast, fjords and peninsula.
+- A port, or anything that requires "coast", needs a landform with sea. Settlement regions must be places the
+  landform puts land (on an archipelago the centre may be open sea).
+- Small islands are low and open: "accessible" (a corridor through hard country) and "defensible" (a commanding
+  height) rarely hold there, so on archipelagos and small islands prefer coast, river_mouth and on_river for the
+  settlements you invent. Set min_lakes above 0 only when the description names lakes or the landform is lakeland.
+- "lakeland" means a country of many large lakes (Finland, Canadian shield). A desert with oases is NOT lakeland: use
+  highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
+  (the oases) and dries the rest of each basin into salt flats. Oasis towns can require "lakeside" or "on_river".
+- At most 8 mountains and 20 settlements; seed is any integer from 1 to 99999.
 - If the description asks for something impossible (a port in a landlocked region), keep it anyway: the verifier
   will find the conflict and report it. Never quietly fix the user's intent.
 
@@ -379,13 +458,16 @@ async function llmRepair(W, rep, hist, fb, item) {
     sea_level: +W.P.sea.toFixed(2), hydrology: W.P.hydro, climate: W.P.climate, river_threshold: W.P.riverThr,
     ridges: W.P.ridges.map(r => ({ region: r.region, orientation: r.orientation, amp: +r.amp.toFixed(2) })),
     basins: W.P.basins.map(b => b.region), declared_unsatisfiable: W.P.unsat,
+    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)",
+    climate_zone: (W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone) || { temperature: "temperate", humidity: "normal" },
+    map_stats: mapStats(W),
     relaxed_constraints: (W.P.relaxed || []).map(r => ({ settlement: r.sid, was: r.item, now: r.to, why: r.reason })),
     settlement_regions: Object.fromEntries(W.spec.settlements.map(s => [s.id, regionOf(...W.P.pos[s.id])])),
   };
   const feedback = fb === "structured"
     ? "Structured verifier report (failed checks only):\n" + JSON.stringify(rep.fails.map(f => ({
         id: f.id, code: f.code, target: f.target, region: f.region, requirement: f.req, item: f.item,
-        source: f.source, relaxed: f.relaxed || undefined, check: f.label, measured: f.measured, claim: f.claim,
+        source: f.source, relaxed: f.relaxed || undefined, check: f.label, measured: f.measured, claim: f.claim, why: f.why,
         conflict: f.conflict ? { core: f.conflict.core, reason: f.conflict.reason } : undefined,
       })), null, 0)
     : "Verifier verdict: FAIL. No further detail is available in this condition.";
@@ -410,9 +492,65 @@ Tools:
 ${TOOL_DOC}
 
 Reply with only JSON: {"analysis": "one or two sentences in Chinese explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
+PRIORITY: checks with code "character" describe the world as a whole and outrank every other check. Fix them first,
+usually with set_climate or set_landform. Never trade one away for a town: a round whose edits break a character check
+that was passing is rolled back automatically. If a town's requirement can only be met by breaking the world's
+character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
+the character expectation.
 A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
   const out = await llmJSON(prompt, "决定修正动作", item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
+}
+
+// Stage 1b: map review. The only stage that sees both the original description and the map as a whole. It compares
+// them, adds character expectations the planner missed, and may change landform or climate before the repair loop
+// starts; at the end it reviews again and only reports, which gives a description-fit score for the run.
+function charSummary(W) {
+  const st = mapStats(W), bc = {};
+  let land = 0; for (let i = 0; i < NN; i++) if (!W.ocean[i]) { land++; bc[W.biome[i]] = (bc[W.biome[i]] || 0) + 1; }
+  const biomes = Object.fromEntries(Object.entries(bc).sort((a, b) => b[1] - a[1]).filter(([, n]) => n / land >= 0.01).map(([b, n]) => [b, +(n / land).toFixed(2)]));
+  return {
+    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)", scale: W.spec.scale || "region",
+    climate_zone: (W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone) || { temperature: "temperate", humidity: "normal" },
+    stats: st, biome_shares_of_land: biomes,
+    settlements: W.spec.settlements.map(s => ({ name: s.name, type: s.type, region: regionOf(...W.P.pos[s.id]), biome: W.biome[posIdx(W, s.id)] })),
+  };
+}
+async function llmCritique(W, desc, mode, item) {
+  const final = mode === "final";
+  const prompt = `You review a generated map against the worldbuilding description it was made from. Judge the WORLD AS A
+WHOLE — its shape, climate, water, vegetation, relief — not individual town placements, which other checks handle.
+
+Description:
+"""${desc.slice(0, 3000)}"""
+
+What the map actually is (shares are of the land unless named otherwise):
+${JSON.stringify(charSummary(W))}
+
+Character expectations already declared:
+${JSON.stringify(W.spec.character || [])}
+
+Ask: would a reader of the description recognise this map? A desert empire should be mostly desert, not a land of
+big lakes; a frozen archipelago should be many cold islands; a river delta needs rivers and wetland.
+
+Reply with only JSON:
+{"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short Chinese sentences, most important first"],
+${final ? `"actions": []}` : `"add_character": [character expectations the map should meet but nobody declared, same shape as above:
+   {"metric": ..., "level": ... | "min"/"max" for islands, "why": Chinese}],
+ "actions": [{"tool": "<name>", "args": {...every argument the tool lists...}}] — tool calls that fix the world as a whole,
+   from: set_landform, set_climate, raise_ridge, carve_basin, set_sea_level, set_river_threshold}
+
+Tools:
+${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)/.test(l)).join("\n")}
+
+Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.`}
+Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
+  const out = await llmJSON(prompt, final ? "终审：对照描述" : "审阅：对照描述", item);
+  return {
+    fits: !!out.fits, score: clamp(Math.round(+out.score || 0), 0, 5), issues: (Array.isArray(out.issues) ? out.issues : []).map(String).slice(0, 6),
+    add: final ? [] : normalizeCharacter(out.add_character, "critic"),
+    actions: final ? [] : (Array.isArray(out.actions) ? out.actions : []).filter(a => a && /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)$/.test(a.tool)).slice(0, 6),
+  };
 }
 
 // Stage 2'': conflict resolution. The solver has proved a set of constraints jointly unsatisfiable; this stage decides
@@ -433,6 +571,10 @@ this same agent and carries the reason that stage gave — and "can_become": wha
 carries two numbers: "cells_now" is how many sites satisfy it on the map as it stands, and "cells_after_tools" is how
 many could after the terrain tools do their best (digging a lake, raising a ridge, lowering the river threshold).
 An option with cells_now = 0 but cells_after_tools > 0 is reachable, but only by rebuilding terrain for it.
+Some items carry "blocked_by_character": the world's overall character — decided first, and ranked above every site
+constraint — keeps the feature this item needs scarce (few lakes, few mountains), so the tools may not build it for
+this town and its cells_after_tools counts only what the map already has. Such a conflict is between the town and the
+world as a whole.
 ${JSON.stringify(briefs.map(b => ({ target: b.target, name: b.name, type: b.type, conflict: b.reason, checks: b.checks, core: b.core })), null, 0)}
 
 Tool:
@@ -445,6 +587,10 @@ Rules:
   name the words it rests on. Wanting the loop to converge is not a reason.
 - Prefer a swap over a drop wherever "can_become" offers one. A port that cannot reach the sea is still a port if it
   sits on a river, and that keeps more of the author's intent than deleting the requirement.
+- When a core holds an item blocked_by_character, the world wins: yield that item, preferring a swap that keeps the
+  town's role (an oasis town that needed a lake can take its water from a river). Only when the description itself
+  explicitly demands that very feature for that very town may you keep it, by relaxing another item in the core or
+  declaring the check unsatisfiable; name the words you rest on.
 - Relax exactly ONE item per conflict. The core is minimal, so one is enough; a second throws away intent for nothing.
 - If every item in a core is explicit and the description gives you no ground to rank them, relax nothing and declare
   that conflict's checks unsatisfiable instead of guessing.
@@ -559,9 +705,22 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     item.body = pol.analysis;
     if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + "（agent 没有给出新动作，循环结束）"; renderTrace(); break; }
     const r = applyActions(W, pol.actions);
+    // character outranks site constraints: a round that breaks a passing character check is undone
+    const rep2 = verify(r.W, withLore ? activeLore() : null);
+    const broken = rep.checks.filter(c => c.code === "character" && c.status === "pass").filter(c => rep2.fails.some(f => f.id === c.id));
+    if (broken.length) {
+      const why = `本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`;
+      r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: why });
+      hist.push({ actions: pol.actions, results: r.results });
+      item.after = rep.fails.length; item.body += (item.body ? " " : "") + `（${why}）`;
+      item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
+      renderTrace(); await frame();
+      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: "达到迭代上限", body: `仍有 ${rep.fails.length} 项违规。` });
+      continue;
+    }
     hist.push({ actions: pol.actions, results: r.results });
     W = r.W;
-    rep = verify(W, withLore ? activeLore() : null);
+    rep = rep2;
     item.after = rep.fails.length;
     item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
     pushSnap(W, `${title}${it}`, "iter");
@@ -571,24 +730,40 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   return W;
 }
 
-async function runAgent() {
+async function runAgent(opts = {}) {
   if (S.running) return;
-  const eng = engine(), fb = $("#feedback").value, maxIter = clamp(+$("#maxIter").value || 6, 1, 10);
-  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = "先生成世界观，再来这里修改。"; S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
+  const eng = opts.eng || engine(), fb = $("#feedback").value, maxIter = clamp(+$("#maxIter").value || 6, 1, 10);
+  // Where the WorldSpec comes from: the model reads any description; without one, only a random world or an example
+  // that carries a hand-written spec can be built. Say so instead of silently drawing something unrelated.
+  const desc0 = $("#desc").value.trim();
+  const isRandom = !!S.randomSpec && desc0 === S.randomDesc.trim();
+  const preset = PRESETS.find(p => p.text.trim() === desc0) || null;
+  if (!desc0) { $("#busy").textContent = "先写一句描述，或点「随机世界」。"; return; }
+  if (eng !== "claude" && !isRandom && !preset) {
+    $("#busy").textContent = $("#engClaude").disabled
+      ? "离线模式读不懂自由描述。填入 OpenRouter key 解锁模型，或点「随机世界」。"
+      : "离线模式读不懂自由描述：把「规划与修正由谁完成」切到 Claude，或点「随机世界」。";
+    return;
+  }
+  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; S.fit = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = "先生成世界观，再来这里修改。"; S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
   setBusy(true, "生成中");
   try {
-    const preset = PRESETS[+$("#preset").value];
-    const desc = $("#desc").value.trim();
+    const desc = desc0;
     let raw;
-    if (eng === "claude") {
+    if (isRandom) {
+      raw = S.randomSpec;
+      addTrace({ kind: "plan", title: "规划器（随机世界）", body: "使用随机抽取的 WorldSpec：地形模板、气候、尺度、山脉和聚落都由种子决定，规划阶段不调用模型。" });
+    } else if (eng === "claude") {
       const item = addTrace({ kind: "plan", title: "规划器", body: "把描述转成 WorldSpec（结构化规格）。" });
       raw = resolveRelationNames(await llmPlan(desc, item));
     } else {
       raw = preset.spec;
-      addTrace({ kind: "plan", title: "规划器（离线）", body: desc !== preset.text ? "离线模式只能读取预设写好的 WorldSpec，你改过的描述没有被使用。要解析自定义描述，请切换到 Claude。" : "使用预设写好的 WorldSpec。离线模式不调用模型。" });
+      addTrace({ kind: "plan", title: "规划器（离线）", body: "这段描述是自带 WorldSpec 的示例，离线模式直接使用写好的规格，不调用模型。" });
     }
     S.spec = normalizeSpec(raw);
     $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+    { const km = (SCALES[S.spec.scale] || SCALES.region).km * N;
+      $("#scaleHint").textContent = `图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`; }
     fillEditSelects(); syncStyleControls();
     await frame();
     let W = derive(S.spec, initParams(S.spec));
@@ -607,8 +782,41 @@ async function runAgent() {
     const rep0 = verify(W, null);
     addTrace({ kind: "build", title: "生成器", body: `按默认参数生成：噪声地形、噪声湿度、不填洼的 D8 水文。验证器发现 ${rep0.fails.length} 项违规。` });
     pushSnap(W, "初始", "init");
+    if (eng === "claude" && !isRandom && fb !== "none") {
+      const ci = addTrace({ kind: "plan", title: "地图审阅", body: "把整张图的统计和原始描述对照，检查世界的整体特征。" });
+      try {
+        const cr = await llmCritique(W, desc, "pre", ci);
+        const notes = [`吻合度 ${cr.score}/5`].concat(cr.issues);
+        if (cr.add.length) {
+          const have = new Set((S.spec.character || []).map(c => c.metric));
+          const add = cr.add.filter(c => !have.has(c.metric));
+          if (add.length) {
+            S.spec = normalizeSpec({ ...S.spec, character: [...(S.spec.character || []), ...add] });
+            W = derive(S.spec, W.P);
+            notes.push("补充整体特征：" + add.map(charLabel).join("、"));
+            $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+          }
+        }
+        if (cr.actions.length) {
+          const r = applyActions(W, cr.actions); W = r.W;
+          ci.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
+        }
+        ci.body = notes.join("；") + "。";
+        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, "审阅调整", "iter"); }
+        renderTrace();
+      } catch (e) { ci.body = "审阅失败：" + (e.message || e); }
+    }
     if (fb === "none") addTrace({ kind: "done", title: "无反馈条件", body: "只生成一次，不进入修正循环。" });
-    else await repairLoop(W, { fb, maxIter, withLore: false, eng, title: "修正", desc });
+    else W = await repairLoop(W, { fb, maxIter, withLore: false, eng, title: "修正", desc });
+    if (eng === "claude" && !isRandom && fb !== "none") {
+      const fi = addTrace({ kind: "plan", title: "终审", body: "修正结束后再把地图和描述对照一次，只评分不改动。" });
+      try {
+        const cr = await llmCritique(W, desc, "final", fi);
+        S.fit = cr.score;
+        fi.body = `吻合度 ${cr.score}/5${cr.fits ? "，符合描述" : "，与描述仍有出入"}。` + (cr.issues.length ? cr.issues.join("；") + "。" : "");
+        renderTrace(); renderMetrics();
+      } catch (e) { fi.body = "终审失败：" + (e.message || e); }
+    }
   } catch (e) {
     addTrace({ kind: "error", title: "中断", body: e.message || String(e) });
   } finally {
@@ -805,6 +1013,7 @@ function renderMetrics() {
     <div><dt>检查通过率</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
     <div><dt>声明无法满足</dt><dd>${declared}</dd></div>
     <div><dt>Claude 调用</dt><dd>${S.llmCalls} 次</dd></div>
+    ${S.fit != null ? `<div><dt>描述吻合（终审）</dt><dd>${S.fit}/5</dd></div>` : ""}
     <div><dt>用时</dt><dd>${S.elapsed ? S.elapsed.toFixed(1) + " s" : "…"}</dd></div>`;
 }
 function renderTrace() {
@@ -953,19 +1162,23 @@ function proposalRows(caseId, spec) {
   return rows;
 }
 function compareSpecs(gold, got) {
+  // invented settlements and ranges are the planner's additions, not extractions: score only what it claims to have read
+  const own = got.settlements.filter(s => !s.invented), ownM = got.mountains.filter(m => !m.invented);
   const setOf = ss => new Set(ss.map(s => `${s.type}|${s.region}|${[...s.requires].sort().join("+")}`));
-  const g = setOf(gold.settlements), h = setOf(got.settlements);
+  const g = setOf(gold.settlements), h = setOf(own);
   const inter = [...h].filter(x => g.has(x)).length;
   return {
     ocean_side: gold.ocean_side === got.ocean_side ? 1 : 0,
     wind_from: gold.wind_from === got.wind_from ? 1 : 0,
-    n_mountains: got.mountains.length, gold_mountains: gold.mountains.length,
-    mountain_region_hits: got.mountains.filter(m => gold.mountains.some(q => q.region === m.region)).length,
-    n_settlements: got.settlements.length, gold_settlements: gold.settlements.length,
+    n_mountains: ownM.length, gold_mountains: gold.mountains.length,
+    mountain_region_hits: ownM.filter(m => gold.mountains.some(q => q.region === m.region)).length,
+    n_settlements: own.length, gold_settlements: gold.settlements.length,
+    n_invented: got.settlements.length - own.length, n_invented_mountains: got.mountains.length - ownM.length,
+    landform: got.landform || "", scale: got.scale || "region", n_character: (got.character || []).length,
     settlement_precision: +(inter / Math.max(1, h.size)).toFixed(2),
     settlement_recall: +(inter / Math.max(1, g.size)).toFixed(2),
     min_rivers_match: gold.min_major_rivers === got.min_major_rivers ? 1 : 0,
-    n_proposed: got.settlements.reduce((a, s) => a + (s.proposed || []).length, 0),
+    n_proposed: own.reduce((a, s) => a + (s.proposed || []).length, 0),
     n_relations: (got.relations || []).length,
     era: got.style.era, street_pattern: got.style.street_pattern,
   };
@@ -1068,6 +1281,7 @@ function drawCityDetail(W, P) {
 const BIOME_RGB = {
   snow: [240, 241, 238], rock: [150, 140, 128], tundra: [176, 178, 150], taiga: [86, 116, 88], steppe: [198, 186, 128],
   desert: [220, 196, 142], grassland: [158, 182, 108], forest: [100, 138, 78], marsh: [104, 134, 110], rainforest: [66, 112, 74],
+  ice: [228, 237, 242], savanna: [196, 180, 108], jungle: [52, 106, 62], playa: [226, 218, 198],
 };
 function hyps(rel) {
   const stops = [[0, [120, 158, 104]], [0.1, [170, 186, 124]], [0.2, [204, 192, 134]], [0.3, [186, 150, 104]], [0.4, [140, 116, 96]], [0.5, [236, 234, 228]]];
@@ -1118,11 +1332,16 @@ function baseImage(sn, mode = "2d") {
   const W = sn.W, off = document.createElement("canvas"); off.width = off.height = N;
   const { hill, shadow, ao, dLand } = shading(W);
   const ctx = off.getContext("2d"), img = ctx.createImageData(N, N), d = img.data;
-  const tex = mode === "tex";
+  const tex = mode === "tex", atlas = !tex && S.layers.base === "atlas";
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
     const i = y * N + x; let c;
     const grain = 1 + (((x * 73856093) ^ (y * 19349663)) % 7) * 0.004;
-    if (W.ocean[i]) {
+    if (atlas) {
+      // atlas: flat biome tints and a near-uniform sea, like a printed overview map; relief is only a faint tone
+      if (W.ocean[i]) { const near = 1 - smooth(0, 6, dLand[i]); c = [70 + 26 * near, 110 + 24 * near, 150 + 14 * near]; }
+      else if (W.hy.lake[i]) c = [110, 160, 185];
+      else { const rel = W.h[i] - W.P.sea; c = BIOME_RGB[W.biome[i]].map(v => Math.min(255, v * (0.85 + rel * 0.5) * (0.95 + 0.08 * hill[i]))); }
+    } else if (W.ocean[i]) {
       const depth = clamp((W.P.sea - W.h[i]) / 0.32, 0, 1), near = smooth(0, 14, dLand[i]);
       const t = clamp(0.35 * depth + 0.65 * near, 0, 1);
       c = [150 - 100 * t, 198 - 98 * t, 200 - 72 * t];
@@ -1133,8 +1352,8 @@ function baseImage(sn, mode = "2d") {
       c = [128 - 50 * dep, 176 - 44 * dep, 186 - 26 * dep];
       if (!tex) c = c.map(v => v * (1 - 0.25 * shadow[i]));
     } else {
-      c = S.layers.base === "biome" ? BIOME_RGB[W.biome[i]] : hyps(W.h[i] - W.P.sea);
-      if (S.layers.base === "biome") { const rel = W.h[i] - W.P.sea; c = c.map(v => v * (0.92 + rel * 0.3)); }
+      c = S.layers.base !== "elev" ? BIOME_RGB[W.biome[i]] : hyps(W.h[i] - W.P.sea);
+      if (S.layers.base !== "elev") { const rel = W.h[i] - W.P.sea; c = c.map(v => v * (0.92 + rel * 0.3)); }
       const lit = tex ? (0.82 + 0.22 * hill[i]) * ao[i] : (0.42 + 0.66 * hill[i]) * (1 - 0.38 * shadow[i]) * ao[i];
       c = c.map(v => v * lit * grain);
     }
@@ -1151,7 +1370,7 @@ function riverLabelCells(W) {
   W._rl = W.hy.rivers.map(r => { const cells = (by.get(r.id) || []).sort((a, b) => W.hy.acc[a] - W.hy.acc[b]); return cells.length ? { r, i: cells[Math.floor(cells.length * 0.55)] } : null; }).filter(Boolean);
   return W._rl;
 }
-function drawRivers(ctx, W, k, wmul = 1) {
+function drawRivers(ctx, W, k, wmul = 1, minBucket = 0) {
   const thr = W.P.riverThr, buckets = [[], [], [], [], [], []];
   for (let i = 0; i < NN; i++) {
     if (!W.hy.channel[i] || W.hy.lake[i]) continue; const d = W.hy.down[i]; if (d < 0) continue;
@@ -1160,6 +1379,7 @@ function drawRivers(ctx, W, k, wmul = 1) {
   const c = i => [(i % N + 0.5) * k, (Math.floor(i / N) + 0.5) * k];
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   buckets.forEach((arr, b) => {
+    if (b < minBucket) return;
     const w = (0.45 + b * 0.5) * wmul;
     for (const [col, extra] of (b >= 2 ? [["rgba(28,58,74,0.28)", 0.9 * wmul], ["#4a86a2", 0]] : [["#5b93ad", 0]])) {
       ctx.strokeStyle = col; ctx.lineWidth = w + extra; ctx.beginPath();
@@ -1193,11 +1413,11 @@ function render2D() {
     ctx.restore();
     REGIONS.forEach((r, j) => halo(ctx, REGION_ZH[r], (j % 3) * SZ / 3 + 8, Math.floor(j / 3) * SZ / 3 + 14, `500 12px ${SANS}`, "rgba(31,43,46,0.6)"));
     // scale bar
-    const px = 200 / KM_PER_CELL * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - px, SZ - 22, px, 4);
-    halo(ctx, "200 km", SZ - 24 - px / 2, SZ - 34, `500 12px ${SANS}`, INK, "center");
+    const bkm = 100 * kmOf(W), px = bkm / kmOf(W) * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - px, SZ - 22, px, 4);
+    halo(ctx, `${bkm} km`, SZ - 24 - px / 2, SZ - 34, `500 12px ${SANS}`, INK, "center");
   }
   if (S.layers.rivers) {
-    drawRivers(ctx, W, k, 1);
+    drawRivers(ctx, W, k, 1, S.layers.base === "atlas" ? 1 : 0);
     for (const { r, i } of riverLabelCells(W)) { const [x, y] = c(i); halo(ctx, r.name, x + 6, y - 8, `italic 500 13px ${SERIF}`, S.highlight === r.id ? LORE : "#2f5c75"); }
     for (const l of W.hy.lakes.slice(0, 5)) halo(ctx, l.name, (l.cx + 0.5) * k, (l.cy + 0.5) * k, `italic 500 12px ${SERIF}`, "#2f5c75", "center");
     if (W.P.hydro !== "filled") { ctx.fillStyle = "#2f5c75"; for (const s of W.hy.sinks) { const [x, y] = c(s.i); ctx.beginPath(); ctx.arc(x, y, 2.4, 0, 7); ctx.fill(); } }
@@ -1209,6 +1429,11 @@ function render2D() {
   }
   const ready = plansReady(W);
   if (!ready) schedulePlans(W);
+  if (S.layers.settle) for (const hm of hamlets(W)) {
+    const x = (hm.x + 0.5) * k, y = (hm.y + 0.5) * k;
+    ctx.fillStyle = "#f4f6f0"; ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); ctx.stroke();
+    halo(ctx, hm.name, x + 6, y, `500 11px ${SERIF}`, "rgba(31,43,46,0.82)");
+  }
   if (S.layers.settle && ready) {
     drawRegionalOverlay(ctx, W, k);
     for (const s of W.spec.settlements) {
@@ -1258,4 +1483,4 @@ initControls();
 setViewMode(window.THREE ? "3d" : "2d");
 renderLore(); updateEditButtonsSafe();
 function updateEditButtonsSafe() { S.spec = S.spec || { settlements: [] }; updateEditButtons(); }
-(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent());
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent({ eng: "offline" }));   // the opening map never spends credit
