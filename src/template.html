@@ -36,17 +36,28 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 button, select, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--chart); outline-offset: 2px; }
 
-.top { padding: 28px clamp(16px, 3vw, 40px) 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 24px; align-items: end; border-bottom: 1px solid var(--line); }
+.top { padding: 28px clamp(16px, 3vw, 40px) 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 24px; align-items: end; border-bottom: 1px solid var(--line); }
 .top h1 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.15; letter-spacing: 0.02em; }
 .lede { margin: 0; color: var(--muted); max-width: 62ch; grid-column: 1; }
 #agentStatus { grid-column: 2; grid-row: 1 / span 2; max-width: 34ch; font-size: 13px; color: var(--muted); padding-left: 12px; border-left: 3px solid var(--line); }
 #agentStatus[data-state="ok"] { border-color: var(--ok); }
+#langBtn { grid-column: 3; grid-row: 1; align-self: start; justify-self: end; padding: 4px 12px; font-size: 13px; }
 
 .grid { display: grid; grid-template-columns: 290px minmax(0, 1fr) 370px; gap: 16px; padding: 16px clamp(16px, 3vw, 40px) 40px; align-items: start; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
 .panel h2 { font-size: 19px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .step { font-family: var(--serif); font-size: 13px; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-grid; place-items: center; flex: none; transform: translateY(-2px); }
 .lore-panel { grid-column: 1 / -1; }
+#histWrap { margin-top: 12px; }
+#histList { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+#histList li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px; border: 1px solid var(--line); border-radius: 4px; }
+#histList li.cur { border-color: var(--ink); }
+#histList img { width: 52px; height: 52px; border-radius: 3px; display: block; }
+#histList .h-name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#histList .h-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#histList .h-btns { display: flex; flex-direction: column; gap: 3px; }
+#histList button, #histWrap button.small { font-size: 12px; padding: 2px 8px; }
+#histList .empty { display: block; border: 0; color: var(--muted); font-size: 13px; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
 .examples button:hover { border-color: var(--ink); color: var(--ink); }
@@ -221,6 +232,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   .lore-panel, .city-panel { grid-column: auto; }
   .city-wrap { grid-template-columns: minmax(0, 1fr); }
   .top { grid-template-columns: minmax(0, 1fr); }
+  #langBtn { grid-column: 1; grid-row: 1; }
   #agentStatus { grid-column: 1; grid-row: auto; max-width: none; }
 }
 </style>
@@ -230,6 +242,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   <h1>区域地图 Agent</h1>
   <p class="lede">把一段世界观描述变成地形、水系和聚落，由验证器找出物理规律与设定上的矛盾，再让 agent 调用生成工具逐轮修正。写好的世界观会被逐条对照地图核查。</p>
   <p id="agentStatus">正在检测 Claude 是否可用</p>
+  <button type="button" id="langBtn" title="切换界面语言 / Switch language">EN</button>
 </header>
 <main class="grid">
   <section class="panel" aria-labelledby="h1s">
@@ -239,6 +252,10 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
     <div class="examples" id="examples" aria-label="示例描述"></div>
     <div class="btns"><button class="primary" id="run">生成世界</button><button type="button" id="randomBtn" title="抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型">随机世界</button><button id="stop" hidden>停止</button></div>
     <p id="busy" class="hint" aria-live="polite" style="margin:6px 0 0"></p>
+    <details id="histWrap"><summary>历史记录（最近 10 条，存在这个浏览器里）</summary>
+      <ul id="histList"></ul>
+      <button type="button" id="histClear" class="small">清空历史</button>
+    </details>
     <p class="hint" id="scaleHint" style="margin:6px 0 0"></p>
     <fieldset>
       <legend>规划与修正由谁完成</legend>
@@ -267,6 +284,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   <section class="panel map-panel" aria-label="地图">
     <div class="viewbar">
       <button type="button" id="layoutBtn" aria-pressed="true" title="地图占满整行，设置和检查面板移到下方">大图布局</button>
+      <button type="button" id="savePng" title="把平面地图（含水系、聚落和标注）保存成 PNG 图片">保存平面图</button>
       <div class="seg" role="group" aria-label="视图"><button type="button" data-view="3d" aria-pressed="true">3D 沙盘</button><button type="button" data-view="2d" aria-pressed="false">平面地图</button><button type="button" data-view="game" aria-pressed="false">游戏地图</button></div>
       <span id="ctlgame" hidden><button type="button" id="gmAll">区域图</button><button type="button" id="gmZoom">聚焦城镇</button><label><input type="checkbox" id="gmFog" checked>探索迷雾</label><button type="button" id="gmRedraw">重新渲染</button><span class="hint" style="margin:0">点击传送点图标可放大该城镇，再点一次返回</span></span>
       <span id="ctl3d"><label>地形夸张 <input type="range" id="exag" min="0.5" max="3" step="0.1" value="1.6"></label><button type="button" id="camReset">斜视</button><button type="button" id="camTop">俯视</button><span class="hint" style="margin:0">拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去</span></span>

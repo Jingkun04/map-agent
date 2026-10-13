@@ -255,7 +255,7 @@ function gmCompose(ctx, W, size, shot, ready) {
   ctx.strokeStyle = "rgba(196,164,104,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(22, 22, size - 44, size - 44);
   const cap = GM.focus ? `${W.spec.name} · ${nameOf(W, GM.focus)}` : W.spec.name;
   gmDrawLabel(ctx, cap, size / 2, 50, `600 30px ${SERIF}`, GM.gold);
-  if (!ready) gmDrawLabel(ctx, "正在生成城镇…", size / 2, size / 2, `500 26px ${SERIF}`, GM.dim);
+  if (!ready) gmDrawLabel(ctx, L("正在生成城镇…", "Planning towns…"), size / 2, size / 2, `500 26px ${SERIF}`, GM.dim);
 }
 function gmExplored(px, py) {
   if (!GM.fog || !GM.mask) return true;

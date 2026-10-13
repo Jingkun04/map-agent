@@ -36,17 +36,28 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 button, select, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--chart); outline-offset: 2px; }
 
-.top { padding: 28px clamp(16px, 3vw, 40px) 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 24px; align-items: end; border-bottom: 1px solid var(--line); }
+.top { padding: 28px clamp(16px, 3vw, 40px) 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 24px; align-items: end; border-bottom: 1px solid var(--line); }
 .top h1 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.15; letter-spacing: 0.02em; }
 .lede { margin: 0; color: var(--muted); max-width: 62ch; grid-column: 1; }
 #agentStatus { grid-column: 2; grid-row: 1 / span 2; max-width: 34ch; font-size: 13px; color: var(--muted); padding-left: 12px; border-left: 3px solid var(--line); }
 #agentStatus[data-state="ok"] { border-color: var(--ok); }
+#langBtn { grid-column: 3; grid-row: 1; align-self: start; justify-self: end; padding: 4px 12px; font-size: 13px; }
 
 .grid { display: grid; grid-template-columns: 290px minmax(0, 1fr) 370px; gap: 16px; padding: 16px clamp(16px, 3vw, 40px) 40px; align-items: start; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
 .panel h2 { font-size: 19px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .step { font-family: var(--serif); font-size: 13px; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-grid; place-items: center; flex: none; transform: translateY(-2px); }
 .lore-panel { grid-column: 1 / -1; }
+#histWrap { margin-top: 12px; }
+#histList { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+#histList li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px; border: 1px solid var(--line); border-radius: 4px; }
+#histList li.cur { border-color: var(--ink); }
+#histList img { width: 52px; height: 52px; border-radius: 3px; display: block; }
+#histList .h-name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#histList .h-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#histList .h-btns { display: flex; flex-direction: column; gap: 3px; }
+#histList button, #histWrap button.small { font-size: 12px; padding: 2px 8px; }
+#histList .empty { display: block; border: 0; color: var(--muted); font-size: 13px; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
 .examples button:hover { border-color: var(--ink); color: var(--ink); }
@@ -221,6 +232,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   .lore-panel, .city-panel { grid-column: auto; }
   .city-wrap { grid-template-columns: minmax(0, 1fr); }
   .top { grid-template-columns: minmax(0, 1fr); }
+  #langBtn { grid-column: 1; grid-row: 1; }
   #agentStatus { grid-column: 1; grid-row: auto; max-width: none; }
 }
 </style>
@@ -230,6 +242,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   <h1>区域地图 Agent</h1>
   <p class="lede">把一段世界观描述变成地形、水系和聚落，由验证器找出物理规律与设定上的矛盾，再让 agent 调用生成工具逐轮修正。写好的世界观会被逐条对照地图核查。</p>
   <p id="agentStatus">正在检测 Claude 是否可用</p>
+  <button type="button" id="langBtn" title="切换界面语言 / Switch language">EN</button>
 </header>
 <main class="grid">
   <section class="panel" aria-labelledby="h1s">
@@ -239,6 +252,10 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
     <div class="examples" id="examples" aria-label="示例描述"></div>
     <div class="btns"><button class="primary" id="run">生成世界</button><button type="button" id="randomBtn" title="抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型">随机世界</button><button id="stop" hidden>停止</button></div>
     <p id="busy" class="hint" aria-live="polite" style="margin:6px 0 0"></p>
+    <details id="histWrap"><summary>历史记录（最近 10 条，存在这个浏览器里）</summary>
+      <ul id="histList"></ul>
+      <button type="button" id="histClear" class="small">清空历史</button>
+    </details>
     <p class="hint" id="scaleHint" style="margin:6px 0 0"></p>
     <fieldset>
       <legend>规划与修正由谁完成</legend>
@@ -267,6 +284,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
   <section class="panel map-panel" aria-label="地图">
     <div class="viewbar">
       <button type="button" id="layoutBtn" aria-pressed="true" title="地图占满整行，设置和检查面板移到下方">大图布局</button>
+      <button type="button" id="savePng" title="把平面地图（含水系、聚落和标注）保存成 PNG 图片">保存平面图</button>
       <div class="seg" role="group" aria-label="视图"><button type="button" data-view="3d" aria-pressed="true">3D 沙盘</button><button type="button" data-view="2d" aria-pressed="false">平面地图</button><button type="button" data-view="game" aria-pressed="false">游戏地图</button></div>
       <span id="ctlgame" hidden><button type="button" id="gmAll">区域图</button><button type="button" id="gmZoom">聚焦城镇</button><label><input type="checkbox" id="gmFog" checked>探索迷雾</label><button type="button" id="gmRedraw">重新渲染</button><span class="hint" style="margin:0">点击传送点图标可放大该城镇，再点一次返回</span></span>
       <span id="ctl3d"><label>地形夸张 <input type="range" id="exag" min="0.5" max="3" step="0.1" value="1.6"></label><button type="button" id="camReset">斜视</button><button type="button" id="camTop">俯视</button><span class="hint" style="margin:0">拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去</span></span>
@@ -363,6 +381,25 @@ const MAJOR_LEN = 60;           // cells of main stem for a "major" river
 const MOUNTAIN_MIN_CELLS = 1400;
 const ACCESS_T = 0.88, ACCESS_SOFT = 0.80, DEF_T = 0.22;   // corridor / defensible-site thresholds, set from measured percentiles
 const REGIONS = ["NW", "N", "NE", "W", "C", "E", "SW", "S", "SE"];
+// ---------- language ----------
+// LANG picks the language of every string the program writes. The *_ZH tables below are the live name tables: the
+// page swaps their contents to English (setLang in ui.js), so lookups like REGION_ZH[r] follow the switch.
+let LANG = "zh";
+const L = (zh, en) => LANG === "en" ? en : zh;
+const RG = r => L(`${REGION_ZH[r] || ""}部`, `the ${REGION_ZH[r] || r}`);          // "西北部" / "the northwest"
+const NAMES_EN = {
+  REGION_ZH: { NW: "northwest", N: "north", NE: "northeast", W: "west", C: "centre", E: "east", SW: "southwest", S: "south", SE: "southeast" },
+  TYPE_ZH: { port: "port", city: "city", town: "town", village: "village", fortress: "fortress" },
+  REQ_ZH: { coast: "on the coast", river_mouth: "at a river mouth", on_river: "on a river", lakeside: "by a lake", near_mountain: "near mountains", accessible: "accessible", defensible: "defensible" },
+  REL_ZH: { downstream_of: "downstream of", within_days_of: "within" },
+  BIOME_ZH: { ocean: "ocean", lake: "lake", snow: "snowfield", rock: "bare rock", tundra: "tundra", taiga: "taiga", steppe: "steppe", desert: "desert", grassland: "grassland", forest: "temperate forest", marsh: "marsh", rainforest: "temperate rainforest", ice: "ice sheet", savanna: "savanna", jungle: "jungle", playa: "salt flat" },
+  RIVER_NAMES: ["Greywater", "Willow Brook", "Blackstone", "Silverband", "Mistrun", "Redmud", "Heron River", "Coldspring", "Whitesand", "Reedwither", "Longmere", "Singing Brook"],
+  LAKE_NAMES: ["Mirror Lake", "Sunken Bell", "Reedpond", "Coldtarn", "Crescent Mere", "Greyeye Lake", "Bottomless Tarn", "Crane Lake"],
+  DIRS8: ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"],
+  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland" },
+  CHAR_METRICS: { land_share: "land share of map", lake_share: "lakes, share of land", mountain_share: "mountains, share of land", desert_share: "desert and salt flat, share of land", grass_share: "grassland, share of land", forest_share: "forest, share of land", cold_share: "ice and tundra, share of land", wetland_share: "marsh, share of land", islands: "landmasses" },
+  CHAR_LEVEL_ZH: { none: "almost none", low: "low", moderate: "moderate", high: "high", dominant: "dominant" },
+};
 const REGION_ZH = { NW: "西北", N: "北", NE: "东北", W: "西", C: "中", E: "东", SW: "西南", S: "南", SE: "东南" };
 const TYPE_ZH = { port: "港口", city: "城市", town: "城镇", village: "村庄", fortress: "要塞" };
 const REQ_ZH = { coast: "临海", river_mouth: "位于河口", on_river: "临河", lakeside: "临湖", near_mountain: "靠近山脉", accessible: "交通通达", defensible: "易守难攻" };
@@ -405,7 +442,7 @@ function fbm(nz, x, y, oct) { let s = 0, a = 0.5, f = 1, norm = 0; for (let i = 
 function normalizeSpec(raw) {
   const s = raw && typeof raw === "object" ? deep(raw) : {};
   const out = {};
-  out.name = String(s.name || "未命名区域").slice(0, 40);
+  out.name = String(s.name || L("未命名区域", "Unnamed region")).slice(0, 40);
   out.seed = Number.isFinite(+s.seed) ? (Math.abs(+s.seed | 0) % 100000) : hashStr(out.name) % 100000;
   // Optional fields below (landform, scale, climate_zone, names, hamlets) are left out when absent, so a spec
   // without them derives exactly the world it always did — the benchmark specs depend on that.
@@ -428,7 +465,7 @@ function normalizeSpec(raw) {
   if (ch.length) out.character = ch.map((c, i) => ({ id: "C" + (i + 1), ...c }));
   out.wind_from = ["E", "W", "N", "S"].includes(s.wind_from) ? s.wind_from : "W";
   out.mountains = (Array.isArray(s.mountains) ? s.mountains : []).slice(0, 8).map((m, i) => {
-    const o = { id: "M" + (i + 1), name: String(m.name || "无名山脉").slice(0, 20),
+    const o = { id: "M" + (i + 1), name: String(m.name || L("无名山脉", "Nameless Range")).slice(0, 20),
       region: REGIONS.includes(m.region) ? m.region : "N",
       orientation: m.orientation === "NS" ? "NS" : "EW" };
     // angle (degrees, 0 = runs east-west, 90 = north-south) and length are optional refinements of orientation
@@ -448,7 +485,7 @@ function normalizeSpec(raw) {
     // an invented settlement (the planner filled it in, the author never wrote it) owns nothing explicit:
     // every requirement it carries is a proposal, so a conflict gives it up before anything the author said
     const prop = t.invented ? req.slice() : (Array.isArray(t.proposed) ? t.proposed : []).filter(q => req.includes(q));
-    const o = { id: "S" + (i + 1), name: String(t.name || ("聚落" + (i + 1))).slice(0, 20), type, region: REGIONS.includes(t.region) ? t.region : null, requires: [...new Set(req)], proposed: [...new Set(prop)], rationale: String(t.rationale || "").slice(0, 120) };
+    const o = { id: "S" + (i + 1), name: String(t.name || (L("聚落", "Settlement ") + (i + 1))).slice(0, 20), type, region: REGIONS.includes(t.region) ? t.region : null, requires: [...new Set(req)], proposed: [...new Set(prop)], rationale: String(t.rationale || "").slice(0, 120) };
     if (t.invented) o.invented = true;
     return o;
   });
@@ -549,15 +586,16 @@ function normalizeCharacter(list, source) {
   });
 }
 function charLabel(c) {
-  if (c.metric === "islands") return `${CHAR_METRICS.islands}：${c.max >= 99 ? `≥ ${c.min}` : `${c.min}–${c.max}`}`;
-  return `${CHAR_METRICS[c.metric]}：${CHAR_LEVEL_ZH[c.level]}`;
+  if (c.metric === "islands") return `${CHAR_METRICS.islands}${L("：", ": ")}${c.max >= 99 ? `≥ ${c.min}` : `${c.min}–${c.max}`}`;
+  return `${CHAR_METRICS[c.metric]}${L("：", ": ")}${CHAR_LEVEL_ZH[c.level]}`;
 }
 function charCheck(W, c) {
   const v = mapStats(W)[c.metric];
-  if (c.metric === "islands") return { pass: v >= c.min && v <= c.max, measured: `实测 ${v} 块（预期 ${c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max}）` };
+  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass: v >= c.min && v <= c.max, measured: L(`实测 ${v} 块（预期 ${want}）`, `measured ${v} (expected ${want})`) }; }
   const [lo, hi] = CHAR_LEVELS[c.level];
   const pct = x => `${Math.round(x * 100)}%`;
-  return { pass: v >= lo && v <= hi, measured: `实测 ${pct(v)}（预期 ${lo > 0 ? pct(lo) + "–" : "≤ "}${hi < 1 ? pct(hi) : lo > 0 ? "" : "100%"}${lo > 0 && hi >= 1 ? "以上" : ""}）`.replace("–以上", " 以上") };
+  const want = lo > 0 && hi >= 1 ? `≥ ${pct(lo)}` : lo > 0 ? `${pct(lo)}–${pct(hi)}` : `≤ ${pct(hi)}`;
+  return { pass: v >= lo && v <= hi, measured: L(`实测 ${pct(v)}（预期 ${want}）`, `measured ${pct(v)} (expected ${want})`) };
 }
 
 // evaporation per lake cell under a climate_zone, relative to inflow (acc); LAKE_K scales inflow to lake cells
@@ -1221,13 +1259,19 @@ const posIdx = (W, id) => { const p = W.P.pos[id]; return p[1] * N + p[0]; };
 // planner supplied one, otherwise from a small generator.
 const HAMLET_A = "青白石松柳桃杏梨枫桑槐竹苇芦荷泉溪沙岭坡岗峪塘河川野田禾麦稻栗枣榆杨梅兰金银铜铁赤黄乌红东西南北上下前后大小新旧高长清云雁鹤鹿";
 const HAMLET_B = "村庄集寨屯铺坪湾口桥店坊营坳渡";
+const NAME_EN_A = ["Ash", "Black", "Bright", "Cold", "Elm", "Fern", "Grey", "High", "Iron", "Long", "Mill", "Oak", "Red", "Salt", "Stone", "Thorn", "West", "White", "Wolf", "Raven", "Bram", "Lark", "Moss", "Pike", "Rook", "Sedge", "Tarn", "Willow", "Hollow", "Amber", "Copper", "Frost", "Heron", "Marsh", "Gold", "Silver"];
+const NAME_EN_B = ["ford", "stead", "wick", "ton", "by", "holm", "mere", "dale", "bridge", "field", "well", "cross", "moor", "burn", "thorpe", "haven", "gate", "wood", "combe", "ley"];
 function hamletName(r, used) {
+  if (LANG === "en") {
+    for (let t = 0; t < 50; t++) { const nm = NAME_EN_A[Math.floor(r() * NAME_EN_A.length)] + NAME_EN_B[Math.floor(r() * NAME_EN_B.length)]; if (!used.has(nm)) { used.add(nm); return nm; } }
+    return "Nameless";
+  }
   for (let t = 0; t < 50; t++) {
     const a = HAMLET_A[Math.floor(r() * HAMLET_A.length)], b = HAMLET_A[Math.floor(r() * HAMLET_A.length)], c = HAMLET_B[Math.floor(r() * HAMLET_B.length)];
     const nm = r() < 0.65 && a !== b ? a + b + c : a + c;
     if (!used.has(nm)) { used.add(nm); return nm; }
   }
-  return "无名村";
+  return L("无名村", "Nameless");
 }
 const HAMLET_BIOME = { grassland: 0.5, forest: 0.25, steppe: 0.3, savanna: 0.3, marsh: -0.2, rainforest: 0, jungle: -0.1, taiga: -0.1, desert: -0.7, tundra: -0.6, ice: -2, snow: -2, rock: -1 };
 function hamlets(W) {
@@ -1294,6 +1338,9 @@ function travelDays(W, aId, bId) {
   const d = W.travel.get(aId)[posIdx(W, bId)];
   return d >= 1e8 ? null : Math.round(d * kmOf(W) / KM_PER_DAY * 10) / 10;
 }
+// directions are stored in whichever language the claim was written in, so compare them by index
+const DIRS8_ZH = ["东", "东南", "南", "西南", "西", "西北", "北", "东北"];
+const dirIdx = d => { const k = DIRS8_ZH.indexOf(d); return k >= 0 ? k : NAMES_EN.DIRS8.indexOf(String(d).toLowerCase()); };
 function dirOf(W, a, b) {
   const [ax, ay] = W.P.pos[a], [bx, by] = W.P.pos[b];
   const ang = Math.atan2(ay - by, ax - bx);
@@ -1323,32 +1370,32 @@ function checkClaim(W, c) {
   const N_ = id => nameOf(W, id);
   try {
     switch (c.type) {
-      case "in_region": { if (!has(c.s)) break; const r = regionOf(...W.P.pos[c.s]); return { ok: r === c.region, label: `${N_(c.s)}位于${REGION_ZH[c.region] || c.region}部`, measured: `实际在${REGION_ZH[r]}部` }; }
-      case "coastal": { if (!has(c.s)) break; const ok = REQ_TEST.coast(W, posIdx(W, c.s)); return { ok, label: `${N_(c.s)}临海`, measured: ok ? "临海" : `距海 ${Math.round(W.dOcean[posIdx(W, c.s)] * kmOf(W))} km` }; }
+      case "in_region": { if (!has(c.s)) break; const r = regionOf(...W.P.pos[c.s]); return { ok: r === c.region, label: L(`${N_(c.s)}位于${RG(c.region)}`, `${N_(c.s)} is in ${RG(c.region)}`), measured: L(`实际在${RG(r)}`, `actually in ${RG(r)}`) }; }
+      case "coastal": { if (!has(c.s)) break; const ok = REQ_TEST.coast(W, posIdx(W, c.s)); return { ok, label: L(`${N_(c.s)}临海`, `${N_(c.s)} is on the coast`), measured: ok ? L("临海", "on the coast") : L(`距海 ${Math.round(W.dOcean[posIdx(W, c.s)] * kmOf(W))} km`, `${Math.round(W.dOcean[posIdx(W, c.s)] * kmOf(W))} km from the sea`) }; }
       case "on_river": {
         if (!has(c.s)) break; const r = riverAt(W, posIdx(W, c.s));
         const ok = !!r && (!c.river || r.river === c.river);
-        return { ok, label: c.river ? `${N_(c.s)}在${N_(c.river)}畔` : `${N_(c.s)}临河`, measured: r ? (r.river ? `旁边是${N_(r.river)}` : "旁边只有无名小河") : `距最近河道 ${Math.round(W.dRiver[posIdx(W, c.s)] * kmOf(W))} km` };
+        return { ok, label: c.river ? L(`${N_(c.s)}在${N_(c.river)}畔`, `${N_(c.s)} stands on the ${N_(c.river)}`) : L(`${N_(c.s)}临河`, `${N_(c.s)} is on a river`), measured: r ? (r.river ? L(`旁边是${N_(r.river)}`, `next to the ${N_(r.river)}`) : L("旁边只有无名小河", "only a nameless stream nearby")) : L(`距最近河道 ${Math.round(W.dRiver[posIdx(W, c.s)] * kmOf(W))} km`, `${Math.round(W.dRiver[posIdx(W, c.s)] * kmOf(W))} km from the nearest river`) };
       }
-      case "lakeside": { if (!has(c.s)) break; const ok = REQ_TEST.lakeside(W, posIdx(W, c.s)); return { ok, label: `${N_(c.s)}临湖`, measured: ok ? "临湖" : "附近没有湖" }; }
+      case "lakeside": { if (!has(c.s)) break; const ok = REQ_TEST.lakeside(W, posIdx(W, c.s)); return { ok, label: L(`${N_(c.s)}临湖`, `${N_(c.s)} is by a lake`), measured: ok ? L("临湖", "by a lake") : L("附近没有湖", "no lake nearby") }; }
       case "near_mountain": {
         if (!has(c.s)) break; const mask = c.mountain ? mountainMask(W, c.mountain) : null; const i = posIdx(W, c.s); let ok;
         if (mask) { const [x0, y0] = W.P.pos[c.s]; ok = false; for (let dy = -14; dy <= 14 && !ok; dy++) for (let dx = -14; dx <= 14; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= N || y >= N || dx * dx + dy * dy > 196) continue; if (mask(y * N + x)) { ok = true; break; } } }
         else ok = W.dMount[i] <= 14;
-        return { ok, label: `${N_(c.s)}背靠${c.mountain ? N_(c.mountain) : "山脉"}`, measured: ok ? `距山脉 ≤ ${14 * kmOf(W)} km` : `距山脉 ${Math.round(W.dMount[i] * kmOf(W))} km` };
+        return { ok, label: L(`${N_(c.s)}背靠${c.mountain ? N_(c.mountain) : "山脉"}`, `${N_(c.s)} lies under ${c.mountain ? N_(c.mountain) : "the mountains"}`), measured: ok ? L(`距山脉 ≤ ${14 * kmOf(W)} km`, `≤ ${14 * kmOf(W)} km from mountains`) : L(`距山脉 ${Math.round(W.dMount[i] * kmOf(W))} km`, `${Math.round(W.dMount[i] * kmOf(W))} km from mountains`) };
       }
-      case "biome": { if (!has(c.s)) break; const b = W.biome[posIdx(W, c.s)]; return { ok: b === c.biome, label: `${N_(c.s)}周边是${BIOME_ZH[c.biome] || c.biome}`, measured: `实际为${BIOME_ZH[b]}` }; }
-      case "direction": { if (!has(c.a) || !has(c.b)) break; const d = dirOf(W, c.a, c.b); return { ok: d === c.dir, label: `${N_(c.a)}在${N_(c.b)}的${c.dir}方`, measured: `实际在${d}方` }; }
+      case "biome": { if (!has(c.s)) break; const b = W.biome[posIdx(W, c.s)]; return { ok: b === c.biome, label: L(`${N_(c.s)}周边是${BIOME_ZH[c.biome] || c.biome}`, `${N_(c.s)} is surrounded by ${BIOME_ZH[c.biome] || c.biome}`), measured: L(`实际为${BIOME_ZH[b]}`, `actually ${BIOME_ZH[b]}`) }; }
+      case "direction": { if (!has(c.a) || !has(c.b)) break; const d = dirOf(W, c.a, c.b); return { ok: dirIdx(d) === dirIdx(c.dir), label: L(`${N_(c.a)}在${N_(c.b)}的${c.dir}方`, `${N_(c.a)} lies ${c.dir} of ${N_(c.b)}`), measured: L(`实际在${d}方`, `actually ${d}`) }; }
       case "travel_days": {
         if (!has(c.a) || !has(c.b)) break; const d = travelDays(W, c.a, c.b); const cl = +c.days;
         const ok = d != null && Math.abs(cl - d) <= Math.max(0.5, 0.15 * d);
-        return { ok, label: `${N_(c.a)}到${N_(c.b)}约 ${cl} 天路程`, measured: d == null ? "陆路不可达" : `路径工具测得 ${d} 天` };
+        return { ok, label: L(`${N_(c.a)}到${N_(c.b)}约 ${cl} 天路程`, `${N_(c.a)} is about ${cl} days from ${N_(c.b)}`), measured: d == null ? L("陆路不可达", "unreachable overland") : L(`路径工具测得 ${d} 天`, `route tool measures ${d} days`) };
       }
-      case "separated_by": { if (!has(c.a) || !has(c.b)) break; const ok = crossesMountain(W, c.a, c.b, c.mountain); return { ok, label: `${N_(c.a)}与${N_(c.b)}之间隔着${N_(c.mountain)}`, measured: ok ? "连线穿过山脉" : "连线不经过该山脉" }; }
-      case "upstream_of": { if (!has(c.a) || !has(c.b)) break; const ok = upstreamOf(W, c.a, c.b); return { ok, label: `${N_(c.a)}在${N_(c.b)}的上游`, measured: ok ? "顺流可达" : "顺流到不了" }; }
+      case "separated_by": { if (!has(c.a) || !has(c.b)) break; const ok = crossesMountain(W, c.a, c.b, c.mountain); return { ok, label: L(`${N_(c.a)}与${N_(c.b)}之间隔着${N_(c.mountain)}`, `${N_(c.mountain)} lies between ${N_(c.a)} and ${N_(c.b)}`), measured: ok ? L("连线穿过山脉", "the line between them crosses the range") : L("连线不经过该山脉", "the line between them misses the range") }; }
+      case "upstream_of": { if (!has(c.a) || !has(c.b)) break; const ok = upstreamOf(W, c.a, c.b); return { ok, label: L(`${N_(c.a)}在${N_(c.b)}的上游`, `${N_(c.a)} is upstream of ${N_(c.b)}`), measured: ok ? L("顺流可达", "reachable downstream") : L("顺流到不了", "not reachable downstream") }; }
     }
   } catch (e) { /* fall through */ }
-  return { ok: false, label: `无法核查的声明（${c.type}）`, measured: "引用了不存在的实体或未知类型" };
+  return { ok: false, label: L(`无法核查的声明（${c.type}）`, `uncheckable claim (${c.type})`), measured: L("引用了不存在的实体或未知类型", "refers to an unknown entity or claim type") };
 }
 
 // ---------- conflict analysis (which constraints are jointly unsatisfiable) ----------
@@ -1406,9 +1453,9 @@ function minimalCore(W, items) {
   return core;
 }
 const ITEM_ZH = t => {
-  if (t.startsWith("region:")) return `位于${REGION_ZH[t.slice(7)]}部`;
-  if (t.startsWith("downstream:")) return `位于某地下游`;
-  if (t.startsWith("near:")) { const [, d] = t.slice(5).split("@"); return `路程不超过 ${d} 天`; }
+  if (t.startsWith("region:")) return L(`位于${RG(t.slice(7))}`, `in ${RG(t.slice(7))}`);
+  if (t.startsWith("downstream:")) return L(`位于某地下游`, `downstream of another place`);
+  if (t.startsWith("near:")) { const [, d] = t.slice(5).split("@"); return L(`路程不超过 ${d} 天`, `within ${d} days`); }
   return REQ_ZH[t] || t;
 };
 function analyseConflict(W, s) {
@@ -1420,18 +1467,20 @@ function analyseConflict(W, s) {
   if (core.some(t => t.startsWith("region:"))) {
     const rest = core.filter(t => !t.startsWith("region:"));
     const ok = REGIONS.filter(r => feasibleCount(W, ["region:" + r, ...rest], true).n > 0);
-    if (ok.length) alts.push(`改到${ok.slice(0, 3).map(r => REGION_ZH[r]).join("、")}部`);
+    if (ok.length) alts.push(L(`改到${ok.slice(0, 3).map(r => REGION_ZH[r]).join("、")}部`, `move to ${ok.slice(0, 3).map(r => RG(r)).join(", ")}`));
   }
   const proposed = new Set(s.proposed || []);
   const ordered = [...core].sort((a, b) => (proposed.has(b) ? 1 : 0) - (proposed.has(a) ? 1 : 0)); // proposed constraints yield first
   for (const t of ordered) {
     if (t.startsWith("region:")) continue;
     const rest = core.filter(x => x !== t);
-    if (feasibleCount(W, rest, true).n > 0) alts.push(`放弃「${ITEM_ZH(t)}」${proposed.has(t) ? "（提议约束，可优先让步）" : t === "coast" || t === "river_mouth" ? "（改为内河港）" : ""}`);
+    if (feasibleCount(W, rest, true).n > 0) alts.push(L(`放弃「${ITEM_ZH(t)}」${proposed.has(t) ? "（提议约束，可优先让步）" : t === "coast" || t === "river_mouth" ? "（改为内河港）" : ""}`,
+      `drop "${ITEM_ZH(t)}"${proposed.has(t) ? " (a proposal, can yield first)" : t === "coast" || t === "river_mouth" ? " (becomes a river port)" : ""}`));
   }
   const capped = core.map(t => ({ item: t, c: charCap(W, t) })).filter(x => x.c);
-  const why = capped.length ? `（整体特征${capped.map(x => `「${charLabel(x.c)}」`).join("、")}不允许为它新造${capped.map(x => CHAR_CAPS[x.item][0] === "lake_share" ? "湖泊" : "山地").join("、")}）` : "";
-  return { core, reason: `${core.map(ITEM_ZH).join(" + ")} 无法同时满足${why}`, alternatives: alts,
+  const why = !capped.length ? "" : L(`（整体特征${capped.map(x => `「${charLabel(x.c)}」`).join("、")}不允许为它新造${capped.map(x => CHAR_CAPS[x.item][0] === "lake_share" ? "湖泊" : "山地").join("、")}）`,
+    ` (the world's character ${capped.map(x => `"${charLabel(x.c)}"`).join(", ")} rules out building ${capped.map(x => CHAR_CAPS[x.item][0] === "lake_share" ? "a lake" : "mountains").join(", ")} for it)`);
+  return { core, reason: L(`${core.map(ITEM_ZH).join(" + ")} 无法同时满足${why}`, `${core.map(ITEM_ZH).join(" + ")} cannot all hold${why}`), alternatives: alts,
     character: capped.map(x => ({ item: x.item, by: "char." + x.c.id, label: charLabel(x.c), why: x.c.why })) };
 }
 
@@ -1472,7 +1521,7 @@ function effRegion(P, s) {
 function relaxOptions(W, core, t) {
   const rest = core.filter(x => x !== t);
   const count = items => ({ cells_now: feasibleCount(W, items, false).n, cells_after_tools: feasibleCount(W, items, true).n });
-  const opts = [{ to: null, label: "放弃", ...count(rest) }];
+  const opts = [{ to: null, label: L("放弃", "drop"), ...count(rest) }];
   for (const to of relaxTargets(t)) {
     if (core.includes(to)) continue;
     opts.push({ to, label: ITEM_ZH(to), ...count([...rest, to]) });
@@ -1500,7 +1549,7 @@ function conflictBriefs(W, rep) {
         return {
           item: t, label: ITEM_ZH(t),
           source: rl ? rl.source : s.invented || proposed.has(t) ? "proposed" : "explicit",    // an invented settlement owns nothing explicit
-          rationale: rl ? rl.rationale || "" : s.invented ? `（规划器补全的聚落）${s.rationale || ""}` : proposed.has(t) ? s.rationale || "" : "",
+          rationale: rl ? rl.rationale || "" : s.invented ? L(`（规划器补全的聚落）${s.rationale || ""}`, `(a settlement the planner invented) ${s.rationale || ""}`) : proposed.has(t) ? s.rationale || "" : "",
           can_become: relaxOptions(W, c.conflict.core, t),
           blocked_by_character: (c.conflict.character || []).find(x => x.item === t) || undefined,
         };
@@ -1519,17 +1568,17 @@ function scriptedNegotiate(W, briefs) {
     const pick = ordered.find(c => c.can_become.length);
     if (!pick) {
       b.checks.forEach(id => actions.push({ tool: "declare_unsatisfiable", args: { check_id: id, reason: b.reason } }));
-      notes.push(`${b.name}：${b.reason}，没有可替代的约束 → 声明无法满足`);
+      notes.push(L(`${b.name}：${b.reason}，没有可替代的约束 → 声明无法满足`, `${b.name}: ${b.reason}, nothing to trade → declared unsatisfiable`));
       continue;
     }
     // keep as much of the constraint as possible: prefer a swap over a drop, then one that already has room
     const swaps = pick.can_become.filter(o => o.to);
     const best = (swaps.length ? swaps : pick.can_become).slice()
       .sort((x, y) => (y.cells_now - x.cells_now) || (y.cells_after_tools - x.cells_after_tools))[0];
-    actions.push({ tool: "relax_constraint", args: { target: b.target, item: pick.item, to: best.to, reason: `规则基线：${pick.source === "proposed" ? "提议约束优先让步" : "冲突核中唯一可让的约束"}` } });
+    actions.push({ tool: "relax_constraint", args: { target: b.target, item: pick.item, to: best.to, reason: L(`规则基线：${pick.source === "proposed" ? "提议约束优先让步" : "冲突核中唯一可让的约束"}`, `rule baseline: ${pick.source === "proposed" ? "a proposal yields first" : "the only item in the core that can yield"}`) } });
     notes.push(`${b.name}：${ITEM_ZH(pick.item)} → ${best.label}`);
   }
-  return { analysis: notes.length ? notes.join("；") + "。" : "没有可让步的约束。", actions };
+  return { analysis: notes.length ? notes.join(L("；", "; ")) + L("。", ".") : L("没有可让步的约束。", "Nothing can yield."), actions };
 }
 
 // ---------- verifier ----------
@@ -1564,68 +1613,68 @@ function verify(W, lore) {
   // character: the world as a whole, listed first because it outranks everything below
   for (const c of spec.character || []) {
     const r = charCheck(W, c);
-    add({ id: `char.${c.id}`, cat: "特征", code: "character", target: c.id, metric: c.metric, source: c.source,
-      label: `整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, pass: r.pass, measured: r.measured, why: c.why, at: [] });
+    add({ id: `char.${c.id}`, cat: L("特征", "character"), code: "character", target: c.id, metric: c.metric, source: c.source,
+      label: L(`整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, `Character: ${charLabel(c)}${c.source === "critic" ? " (added in review)" : ""}`), pass: r.pass, measured: r.measured, why: c.why, at: [] });
   }
   // physical
-  add({ id: "phys.sinks", cat: "物理", code: "river_sink", label: "河流必须汇入海洋、湖泊或流出图幅", pass: hy.sinks.length === 0, measured: hy.sinks.length ? `${hy.sinks.length} 处河道终止于无出口洼地` : "所有河道都有出口", at: hy.sinks.slice(0, 6).map(s => cellXY(s.i)) });
+  add({ id: "phys.sinks", cat: L("物理", "physics"), code: "river_sink", label: L("河流必须汇入海洋、湖泊或流出图幅", "Rivers must reach the sea, a lake or the map edge"), pass: hy.sinks.length === 0, measured: hy.sinks.length ? L(`${hy.sinks.length} 处河道终止于无出口洼地`, `${hy.sinks.length} channels end in closed basins`) : L("所有河道都有出口", "every channel has an outlet"), at: hy.sinks.slice(0, 6).map(s => cellXY(s.i)) });
   for (const m of spec.mountains) {
     const rs = rainShadow(W, m); if (!rs || !rs.applicable) continue;
-    add({ id: `phys.shadow.${m.id}`, cat: "物理", code: "rain_shadow", target: m.id, region: m.region, label: `${m.name}背风坡应比迎风坡干燥`, pass: rs.leeward < rs.windward * 0.85, measured: `迎风坡湿度 ${rs.windward.toFixed(2)}，背风坡 ${rs.leeward.toFixed(2)}`, at: [rs.at] });
+    add({ id: `phys.shadow.${m.id}`, cat: L("物理", "physics"), code: "rain_shadow", target: m.id, region: m.region, label: L(`${m.name}背风坡应比迎风坡干燥`, `The lee of ${m.name} should be drier than its windward side`), pass: rs.leeward < rs.windward * 0.85, measured: L(`迎风坡湿度 ${rs.windward.toFixed(2)}，背风坡 ${rs.leeward.toFixed(2)}`, `windward moisture ${rs.windward.toFixed(2)}, lee ${rs.leeward.toFixed(2)}`), at: [rs.at] });
   }
   for (const s of spec.settlements) {
     const i = posIdx(W, s.id);
-    add({ id: `phys.dry.${s.id}`, cat: "物理", code: "underwater", target: s.id, label: `${s.name}不能建在水里`, pass: isDry(W, i), measured: isDry(W, i) ? "在陆地上" : "位于水域", at: [W.P.pos[s.id]] });
+    add({ id: `phys.dry.${s.id}`, cat: L("物理", "physics"), code: "underwater", target: s.id, label: L(`${s.name}不能建在水里`, `${s.name} cannot stand in water`), pass: isDry(W, i), measured: isDry(W, i) ? L("在陆地上", "on land") : L("位于水域", "in water"), at: [W.P.pos[s.id]] });
     const sl = slopeAt(W, i);
-    add({ id: `phys.slope.${s.id}`, cat: "物理", code: "steep", target: s.id, label: `${s.name}不能建在陡坡上`, pass: sl <= SLOPE_MAX, measured: `坡度 ${(sl * 1000).toFixed(0)}（上限 ${SLOPE_MAX * 1000}）`, at: [W.P.pos[s.id]] });
+    add({ id: `phys.slope.${s.id}`, cat: L("物理", "physics"), code: "steep", target: s.id, label: L(`${s.name}不能建在陡坡上`, `${s.name} cannot stand on a steep slope`), pass: sl <= SLOPE_MAX, measured: L(`坡度 ${(sl * 1000).toFixed(0)}（上限 ${SLOPE_MAX * 1000}）`, `slope ${(sl * 1000).toFixed(0)} (limit ${SLOPE_MAX * 1000})`), at: [W.P.pos[s.id]] });
   }
   // spec
   for (const m of spec.mountains) {
     const [cx, cy] = regionCenter(m.region); let cnt = 0, peak = 0;
     for (let y = Math.floor(cy - N / 6); y < cy + N / 6; y++) for (let x = Math.floor(cx - N / 6); x < cx + N / 6; x++) { const i = y * N + x; if (W.ocean[i]) continue; const rel = W.h[i] - P.sea; peak = Math.max(peak, rel); if (rel > MOUNTAIN_REL) cnt++; }
-    add({ id: `spec.mtn.${m.id}`, cat: "规格", code: "mountain_weak", target: m.id, region: m.region, label: `${REGION_ZH[m.region]}部要有${m.name}`, pass: cnt >= MOUNTAIN_MIN_CELLS, measured: `山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, at: [[Math.round(cx), Math.round(cy)]] });
+    add({ id: `spec.mtn.${m.id}`, cat: L("规格", "spec"), code: "mountain_weak", target: m.id, region: m.region, label: L(`${RG(m.region)}要有${m.name}`, `${m.name} should rise in ${RG(m.region)}`), pass: cnt >= MOUNTAIN_MIN_CELLS, measured: L(`山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, `${cnt} mountain cells (need ${MOUNTAIN_MIN_CELLS}), peak relative elevation ${peak.toFixed(2)}`), at: [[Math.round(cx), Math.round(cy)]] });
   }
-  add({ id: "spec.rivers", cat: "规格", code: "few_rivers", label: `至少 ${spec.min_major_rivers} 条大河`, pass: hy.rivers.length >= spec.min_major_rivers, measured: `现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, at: [] });
-  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: "规格", code: "few_lakes", label: `至少 ${spec.min_lakes} 个湖泊`, pass: hy.lakes.length >= spec.min_lakes, measured: `现有 ${hy.lakes.length} 个`, at: [] });
+  add({ id: "spec.rivers", cat: L("规格", "spec"), code: "few_rivers", label: L(`至少 ${spec.min_major_rivers} 条大河`, `At least ${spec.min_major_rivers} major rivers`), pass: hy.rivers.length >= spec.min_major_rivers, measured: L(`现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, `${hy.rivers.length} now (main stem ≥ ${MAJOR_LEN * kmOf(W)} km)`), at: [] });
+  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: L("规格", "spec"), code: "few_lakes", label: L(`至少 ${spec.min_lakes} 个湖泊`, `At least ${spec.min_lakes} lakes`), pass: hy.lakes.length >= spec.min_lakes, measured: L(`现有 ${hy.lakes.length} 个`, `${hy.lakes.length} now`), at: [] });
   for (const s of spec.settlements) {
     const i = posIdx(W, s.id), p = W.P.pos[s.id];
     if (s.region) {
       const rx = relaxFind(P, s.id, "region:" + s.region), want = effRegion(P, s), r = regionOf(...p);
-      const note = rx ? `（原为${REGION_ZH[s.region]}部，已让步：${rx.reason || "无理由"}）` : "";
-      add({ id: `spec.region.${s.id}`, cat: "规格", code: "wrong_region", target: s.id, item: want ? "region:" + want : null,
+      const note = rx ? L(`（原为${RG(s.region)}，已让步：${rx.reason || "无理由"}）`, ` (was ${RG(s.region)}, yielded: ${rx.reason || "no reason"})`) : "";
+      add({ id: `spec.region.${s.id}`, cat: L("规格", "spec"), code: "wrong_region", target: s.id, item: want ? "region:" + want : null,
         relaxed: !!rx, relaxedOff: !!rx && !want,
-        label: want ? `${s.name}应在${REGION_ZH[want]}部${note}` : `${s.name}原应在${REGION_ZH[s.region]}部${note}`,
-        pass: want ? r === want : true, measured: `实际在${REGION_ZH[r]}部`, at: [p] });
+        label: want ? L(`${s.name}应在${RG(want)}${note}`, `${s.name} should be in ${RG(want)}${note}`) : L(`${s.name}原应在${RG(s.region)}${note}`, `${s.name} was to be in ${RG(s.region)}${note}`),
+        pass: want ? r === want : true, measured: L(`实际在${RG(r)}`, `actually in ${RG(r)}`), at: [p] });
     }
     for (const q of s.requires) {
       const id = `spec.req.${s.id}.${q}`;                    // the id follows the ORIGINAL item, so trajectories stay comparable
       const src = (s.proposed || []).includes(q) ? "proposed" : "explicit";
       const rx = relaxFind(P, s.id, q), q2 = rx ? rx.to : q;
       if (rx && !q2) {
-        add({ id, cat: "规格", code: "req_relaxed", target: s.id, req: q, source: src, relaxed: true, relaxedOff: true,
-          label: `${s.name}（${TYPE_ZH[s.type]}）原需要${REQ_ZH[q]}`, pass: true, measured: `已放弃：${rx.reason || "无理由"}`, at: [p] });
+        add({ id, cat: L("规格", "spec"), code: "req_relaxed", target: s.id, req: q, source: src, relaxed: true, relaxedOff: true,
+          label: L(`${s.name}（${TYPE_ZH[s.type]}）原需要${REQ_ZH[q]}`, `${s.name} (${TYPE_ZH[s.type]}) was to be ${REQ_ZH[q]}`), pass: true, measured: L(`已放弃：${rx.reason || "无理由"}`, `dropped: ${rx.reason || "no reason"}`), at: [p] });
         continue;
       }
-      const note = rx ? `（原需要${REQ_ZH[q]}，已让步：${rx.reason || "无理由"}）` : (s.proposed || []).includes(q) ? "（提议）" : "";
+      const note = rx ? L(`（原需要${REQ_ZH[q]}，已让步：${rx.reason || "无理由"}）`, ` (was ${REQ_ZH[q]}, yielded: ${rx.reason || "no reason"})`) : (s.proposed || []).includes(q) ? L("（提议）", " (proposed)") : "";
       if ((q2 === "coast" || q2 === "river_mouth") && !hasOcean) {
-        add({ id, cat: "规格", code: "no_ocean", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
-          label: `${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, pass: false, measured: "规格中整片区域没有海，此要求无法满足", at: [p] });
+        add({ id, cat: L("规格", "spec"), code: "no_ocean", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
+          label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: false, measured: L("规格中整片区域没有海，此要求无法满足", "the spec has no sea anywhere, so this cannot hold"), at: [p] });
         continue;
       }
       const ok = REQ_TEST[q2](W, i);
       const g = q2 === "accessible" || q2 === "defensible" ? geoFields(W) : null;
-      const detail = !g ? (ok ? "满足" : "不满足")
-        : q2 === "accessible" ? `通达度 ${g.access[i].toFixed(2)}（需 ≥ ${ACCESS_T}）`
-        : `防御性 ${g.def[i].toFixed(2)}（需 ≥ ${DEF_T}）`;
-      add({ id, cat: "规格", code: "req_unmet", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
-        label: `${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, pass: ok, measured: detail, at: [p] });
+      const detail = !g ? (ok ? L("满足", "met") : L("不满足", "not met"))
+        : q2 === "accessible" ? L(`通达度 ${g.access[i].toFixed(2)}（需 ≥ ${ACCESS_T}）`, `accessibility ${g.access[i].toFixed(2)} (need ≥ ${ACCESS_T})`)
+        : L(`防御性 ${g.def[i].toFixed(2)}（需 ≥ ${DEF_T}）`, `defensibility ${g.def[i].toFixed(2)} (need ≥ ${DEF_T})`);
+      add({ id, cat: L("规格", "spec"), code: "req_unmet", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
+        label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: ok, measured: detail, at: [p] });
     }
   }
   // narrative
   if (lore) for (const e of lore) e.claims.forEach((c, k) => {
     const r = checkClaim(W, c);
     const subj = c.s || c.a;
-    add({ id: `lore.${e.id}.${k}`, cat: "叙事", code: "lore_claim", claim: c, target: subj, label: r.label, pass: r.ok, measured: r.measured, at: subj && W.P.pos[subj] ? [W.P.pos[subj]] : [] });
+    add({ id: `lore.${e.id}.${k}`, cat: L("叙事", "lore"), code: "lore_claim", claim: c, target: subj, label: r.label, pass: r.ok, measured: r.measured, at: subj && W.P.pos[subj] ? [W.P.pos[subj]] : [] });
   });
   // relations between settlements (proposed constraints usually live here)
   for (const rl of spec.relations || []) {
@@ -1634,20 +1683,20 @@ function verify(W, lore) {
     const item0 = rl.type === "downstream_of" ? "downstream:" + rl.b : "near:" + rl.b + "@" + rl.days;
     const rx = relaxFind(P, rl.a, item0), item = rx ? rx.to : item0;
     if (rx && !item) {
-      add({ id: `spec.rel.${rl.id}`, cat: "规格", code: "rel_relaxed", target: rl.a, other: rl.b, source: rl.source, relaxed: true, relaxedOff: true,
-        label: `${A.name}原应${REL_ZH[rl.type]}${B.name}`, pass: true, measured: `已放弃：${rx.reason || "无理由"}`, at: [W.P.pos[rl.a]] });
+      add({ id: `spec.rel.${rl.id}`, cat: L("规格", "spec"), code: "rel_relaxed", target: rl.a, other: rl.b, source: rl.source, relaxed: true, relaxedOff: true,
+        label: L(`${A.name}原应${REL_ZH[rl.type]}${B.name}`, `${A.name} was to be ${rl.type === "downstream_of" ? "downstream of" : `within ${rl.days} days of`} ${B.name}`), pass: true, measured: L(`已放弃：${rx.reason || "无理由"}`, `dropped: ${rx.reason || "no reason"}`), at: [W.P.pos[rl.a]] });
       continue;
     }
-    const tag = rx ? `（已让步：${rx.reason || "无理由"}）` : rl.source === "proposed" ? "（提议）" : "";
+    const tag = rx ? L(`（已让步：${rx.reason || "无理由"}）`, ` (yielded: ${rx.reason || "no reason"})`) : rl.source === "proposed" ? L("（提议）", " (proposed)") : "";
     if (rl.type === "downstream_of") {
       const ok = dominatesDownstream(W, rl.b, rl.a);
-      add({ id: `spec.rel.${rl.id}`, cat: "规格", code: "rel_downstream", target: rl.a, other: rl.b, source: rl.source, item, relaxed: !!rx,
-        label: `${A.name}应位于${B.name}的下游${tag}`, pass: ok, measured: ok ? "顺流可达" : "两地不在同一水系的上下游", at: [W.P.pos[rl.a]] });
+      add({ id: `spec.rel.${rl.id}`, cat: L("规格", "spec"), code: "rel_downstream", target: rl.a, other: rl.b, source: rl.source, item, relaxed: !!rx,
+        label: L(`${A.name}应位于${B.name}的下游${tag}`, `${A.name} should be downstream of ${B.name}${tag}`), pass: ok, measured: ok ? L("顺流可达", "reachable downstream") : L("两地不在同一水系的上下游", "not on the same river system"), at: [W.P.pos[rl.a]] });
     } else {
       const days = item.startsWith("near:") ? +item.split("@")[1] : rl.days;
       const d = travelDays(W, rl.a, rl.b), ok = d != null && d <= days;
-      add({ id: `spec.rel.${rl.id}`, cat: "规格", code: "rel_days", target: rl.a, other: rl.b, days, source: rl.source, item, relaxed: !!rx,
-        label: `${A.name}到${B.name}不超过 ${days} 天${tag}`, pass: ok, measured: d == null ? "陆路不可达" : `实测 ${d} 天`, at: [W.P.pos[rl.a]] });
+      add({ id: `spec.rel.${rl.id}`, cat: L("规格", "spec"), code: "rel_days", target: rl.a, other: rl.b, days, source: rl.source, item, relaxed: !!rx,
+        label: L(`${A.name}到${B.name}不超过 ${days} 天${tag}`, `${A.name} within ${days} days of ${B.name}${tag}`), pass: ok, measured: d == null ? L("陆路不可达", "unreachable overland") : L(`实测 ${d} 天`, `measured ${d} days`), at: [W.P.pos[rl.a]] });
     }
   }
   // for settlements that fail a placement constraint, work out whether the constraint set is satisfiable at all
@@ -1724,58 +1773,58 @@ function applyActions(W, actions) {
   for (const a of acts) {
     const g = a.args;
     switch (a.tool) {
-      case "fill_depressions": results.push({ a, ok: true, msg: P.hydro === "filled" ? "已经是填洼模式" : "水文改为 priority-flood 填洼" }); P.hydro = "filled"; terrainChanged = true; break;
-      case "recompute_climate": results.push({ a, ok: true, msg: "湿度改由地形抬升降水模型计算" }); P.climate = "orographic"; terrainChanged = true; break;
+      case "fill_depressions": results.push({ a, ok: true, msg: P.hydro === "filled" ? L("已经是填洼模式", "already filling depressions") : L("水文改为 priority-flood 填洼", "hydrology now fills depressions (priority-flood)") }); P.hydro = "filled"; terrainChanged = true; break;
+      case "recompute_climate": results.push({ a, ok: true, msg: L("湿度改由地形抬升降水模型计算", "moisture now from the orographic rainfall model") }); P.climate = "orographic"; terrainChanged = true; break;
       case "raise_ridge": {
         const region = REGIONS.includes(g.region) ? g.region : null; if (!region) { results.push({ a, ok: false, msg: "未知区域" }); break; }
         const amt = clamp(+g.amount || 0.1, 0.02, 0.2);
         let r = P.ridges.find(q => q.region === region);
         if (!r) { const m = spec.mountains.find(q => q.region === region); r = { mid: m ? m.id : null, region, orientation: m ? m.orientation : "EW", amp: 0, k: P.ridges.length }; P.ridges.push(r); }
         r.amp = clamp(r.amp + amt, 0, 0.45); terrainChanged = true;
-        results.push({ a, ok: true, msg: `${REGION_ZH[region]}部山脊抬高到 ${r.amp.toFixed(2)}` }); break;
+        results.push({ a, ok: true, msg: L(`${RG(region)}山脊抬高到 ${r.amp.toFixed(2)}`, `ridge in ${RG(region)} raised to ${r.amp.toFixed(2)}`) }); break;
       }
       case "carve_basin": {
         const region = REGIONS.includes(g.region) ? g.region : null; if (!region) { results.push({ a, ok: false, msg: "未知区域" }); break; }
         if (P.basins.some(b => b.region === region)) { const b = P.basins.find(b => b.region === region); b.depth = Math.min(0.2, b.depth + 0.05); }
         else P.basins.push({ region, depth: 0.10 });
-        terrainChanged = true; results.push({ a, ok: true, msg: `在${REGION_ZH[region]}部挖出盆地` }); break;
+        terrainChanged = true; results.push({ a, ok: true, msg: L(`在${RG(region)}挖出盆地`, `basin dug in ${RG(region)}`) }); break;
       }
       case "set_landform": {
         const lf = String(g.landform || "");
-        if (!LANDFORMS.includes(lf)) { results.push({ a, ok: false, msg: `未知地形模板 ${lf}` }); break; }
+        if (!LANDFORMS.includes(lf)) { results.push({ a, ok: false, msg: L(`未知地形模板 ${lf}`, `unknown landform ${lf}`) }); break; }
         const was = P.landform !== undefined ? P.landform : spec.landform;
         P.landform = lf; terrainChanged = true; landformChanged = true;
-        results.push({ a, ok: true, msg: `地形模板 ${LANDFORM_ZH[was] || "默认海岸"} → ${LANDFORM_ZH[lf]}` }); break;
+        results.push({ a, ok: true, msg: L(`地形模板 ${LANDFORM_ZH[was] || "默认海岸"} → ${LANDFORM_ZH[lf]}`, `landform ${LANDFORM_ZH[was] || "default coast"} → ${LANDFORM_ZH[lf]}`) }); break;
       }
       case "set_climate": {
         const cur = (P.cz !== undefined ? P.cz : spec.climate_zone) || { temperature: "temperate", humidity: "normal" };
         const t = CLIMATE_T[g.temperature] != null ? g.temperature : cur.temperature, w = CLIMATE_W[g.humidity] ? g.humidity : cur.humidity;
         P.cz = t === "temperate" && w === "normal" ? null : { temperature: t, humidity: w }; terrainChanged = true;
-        const T = { polar: "极寒", cold: "寒冷", temperate: "温和", warm: "温暖", hot: "炎热" }, H = { arid: "干旱", dry: "偏干", normal: "适中", humid: "湿润" };
-        results.push({ a, ok: true, msg: `气候 ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}` }); break;
+        const T = L({ polar: "极寒", cold: "寒冷", temperate: "温和", warm: "温暖", hot: "炎热" }, { polar: "polar ", cold: "cold ", temperate: "temperate ", warm: "warm ", hot: "hot " }), H = L({ arid: "干旱", dry: "偏干", normal: "适中", humid: "湿润" }, { arid: "arid", dry: "dry", normal: "moderate", humid: "humid" });
+        results.push({ a, ok: true, msg: L(`气候 ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`, `climate ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`) }); break;
       }
-      case "set_river_threshold": { const v = clamp(Math.round(+g.value || P.riverThr), 60, 800); results.push({ a, ok: true, msg: `河流阈值 ${P.riverThr} → ${v}` }); P.riverThr = v; terrainChanged = true; break; }
-      case "set_sea_level": { const v = clamp(+g.value || P.sea, 0.30, 0.50); results.push({ a, ok: true, msg: `海平面 ${P.sea.toFixed(2)} → ${v.toFixed(2)}` }); P.sea = v; terrainChanged = true; break; }
-      case "declare_unsatisfiable": { const id = String(g.check_id || ""); if (!P.unsat.includes(id)) P.unsat.push(id); results.push({ a, ok: true, msg: `声明无法满足：${id}` }); break; }
+      case "set_river_threshold": { const v = clamp(Math.round(+g.value || P.riverThr), 60, 800); results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break; }
+      case "set_sea_level": { const v = clamp(+g.value || P.sea, 0.30, 0.50); results.push({ a, ok: true, msg: L(`海平面 ${P.sea.toFixed(2)} → ${v.toFixed(2)}`, `sea level ${P.sea.toFixed(2)} → ${v.toFixed(2)}`) }); P.sea = v; terrainChanged = true; break; }
+      case "declare_unsatisfiable": { const id = String(g.check_id || ""); if (!P.unsat.includes(id)) P.unsat.push(id); results.push({ a, ok: true, msg: L(`声明无法满足：${id}`, `declared unsatisfiable: ${id}`) }); break; }
       case "relax_constraint": {
         const sid = String(g.target || ""), item = String(g.item || "");
         const st = spec.settlements.find(q => q.id === sid);
-        if (!st) { results.push({ a, ok: false, msg: `没有聚落 ${sid}` }); break; }
-        if (!ownedItems(spec, st).includes(item)) { results.push({ a, ok: false, msg: `${st.name} 没有约束「${item}」` }); break; }
-        if (relaxFind(P, sid, item)) { results.push({ a, ok: false, msg: `「${ITEM_ZH(item)}」已经让过一次，不再重复让步` }); break; }
+        if (!st) { results.push({ a, ok: false, msg: L(`没有聚落 ${sid}`, `no settlement ${sid}`) }); break; }
+        if (!ownedItems(spec, st).includes(item)) { results.push({ a, ok: false, msg: L(`${st.name} 没有约束「${item}」`, `${st.name} has no constraint "${item}"`) }); break; }
+        if (relaxFind(P, sid, item)) { results.push({ a, ok: false, msg: L(`「${ITEM_ZH(item)}」已经让过一次，不再重复让步`, `"${ITEM_ZH(item)}" has already yielded once`) }); break; }
         // a trade needs a proof: the item must sit in a minimal unsatisfiable core of this settlement's constraints
         const cf = analyseConflict(W, st);
-        if (!cf || !cf.core.includes(item)) { results.push({ a, ok: false, msg: `「${ITEM_ZH(item)}」不在冲突核里，无需让步` }); break; }
+        if (!cf || !cf.core.includes(item)) { results.push({ a, ok: false, msg: L(`「${ITEM_ZH(item)}」不在冲突核里，无需让步`, `"${ITEM_ZH(item)}" is not in a conflict core, nothing to yield`) }); break; }
         const to = g.to == null || g.to === "" || g.to === "null" ? null : String(g.to);
-        if (to && !relaxTargets(item).includes(to)) { results.push({ a, ok: false, msg: `不能把「${ITEM_ZH(item)}」换成「${ITEM_ZH(to)}」（只能放弃或换成更弱的约束）` }); break; }
+        if (to && !relaxTargets(item).includes(to)) { results.push({ a, ok: false, msg: L(`不能把「${ITEM_ZH(item)}」换成「${ITEM_ZH(to)}」（只能放弃或换成更弱的约束）`, `cannot trade "${ITEM_ZH(item)}" for "${ITEM_ZH(to)}" (only a drop or a weaker constraint)`) }); break; }
         const reason = String(g.reason || "").slice(0, 160);
-        if (!reason) { results.push({ a, ok: false, msg: "让步必须给出理由" }); break; }
+        if (!reason) { results.push({ a, ok: false, msg: L("让步必须给出理由", "a trade needs a reason") }); break; }
         P.relaxed.push({ sid, item, to, reason });
-        results.push({ a, ok: true, msg: `${st.name}：${ITEM_ZH(item)} → ${to ? ITEM_ZH(to) : "放弃"}（${reason}）` });
+        results.push({ a, ok: true, msg: L(`${st.name}：${ITEM_ZH(item)} → ${to ? ITEM_ZH(to) : "放弃"}（${reason}）`, `${st.name}: ${ITEM_ZH(item)} → ${to ? ITEM_ZH(to) : "dropped"} (${reason})`) });
         break;
       }
       case "move_settlement": moves.push(a); break;
-      default: results.push({ a, ok: false, msg: `未知工具 ${a.tool}` });
+      default: results.push({ a, ok: false, msg: L(`未知工具 ${a.tool}`, `unknown tool ${a.tool}`) });
     }
   }
   const W2 = derive(spec, P);
@@ -1787,7 +1836,7 @@ function applyActions(W, actions) {
 }
 function moveSettlement(W, a) {
   const id = String(a.args.id || ""); const s = W.spec.settlements.find(q => q.id === id);
-  if (!s) return { a, ok: false, msg: `没有聚落 ${id}` };
+  if (!s) return { a, ok: false, msg: L(`没有聚落 ${id}`, `no settlement ${id}`) };
   let targets = a.args.targets ?? a.args.target ?? [];
   if (!Array.isArray(targets)) targets = [targets];
   targets = targets.map(String);
@@ -1821,9 +1870,10 @@ function moveSettlement(W, a) {
   const pref = regions.length ? null : effRegion(W.P, s);
   let best = search(pref), outside = false;
   if (best < 0 && pref) { best = search(null); outside = best >= 0; }
-  if (best < 0) return { a, ok: false, msg: `找不到同时满足 [${targets.join(", ")}] 的位置${pref ? `（${REGION_ZH[pref]}部及全图）` : ""}` };
+  if (best < 0) return { a, ok: false, msg: L(`找不到同时满足 [${targets.join(", ")}] 的位置${pref ? `（${RG(pref)}及全图）` : ""}`, `no site meets all of [${targets.join(", ")}]${pref ? ` (in ${RG(pref)} or anywhere)` : ""}`) };
   const to = cellXY(best); W.P.pos[id] = to;
-  return { a, ok: true, outside, moved: Math.hypot(to[0] - x0, to[1] - y0), msg: `${s.name} 移动 ${Math.round(Math.hypot(to[0] - x0, to[1] - y0) * kmOf(W))} km${outside ? `（${REGION_ZH[pref]}部内没有合适位置，已移到${REGION_ZH[regionOf(...to)]}部）` : ""}` };
+  return { a, ok: true, outside, moved: Math.hypot(to[0] - x0, to[1] - y0), msg: L(`${s.name} 移动 ${Math.round(Math.hypot(to[0] - x0, to[1] - y0) * kmOf(W))} km${outside ? `（${RG(pref)}内没有合适位置，已移到${RG(regionOf(...to))}）` : ""}`,
+    `${s.name} moved ${Math.round(Math.hypot(to[0] - x0, to[1] - y0) * kmOf(W))} km${outside ? ` (no site in ${RG(pref)}, moved to ${RG(regionOf(...to))})` : ""}`) };
 }
 
 // ---------- scripted policies (offline stand-ins for the LLM) ----------
@@ -1838,20 +1888,20 @@ function scriptedStructured(W, report, history) {
   const settleT = {};
   for (const v of report.fails) {
     switch (v.code) {
-      case "river_sink": push("fill_depressions", {}); notes.push("河道终止在洼地 → 填洼"); break;
-      case "rain_shadow": push("recompute_climate", {}); notes.push("背风坡不够干 → 换地形降水模型"); break;
-      case "mountain_weak": push("raise_ridge", { region: v.region, amount: 0.12 }); notes.push(`${REGION_ZH[v.region]}部山地不足 → 抬高山脊`); break;
-      case "few_rivers": push("set_river_threshold", { value: Math.round(P.riverThr * 0.62) }); notes.push("大河数量不足 → 降低河流阈值"); break;
+      case "river_sink": push("fill_depressions", {}); notes.push(L("河道终止在洼地 → 填洼", "channels end in basins → fill depressions")); break;
+      case "rain_shadow": push("recompute_climate", {}); notes.push(L("背风坡不够干 → 换地形降水模型", "lee side not dry enough → orographic rainfall")); break;
+      case "mountain_weak": push("raise_ridge", { region: v.region, amount: 0.12 }); notes.push(L(`${RG(v.region)}山地不足 → 抬高山脊`, `too little mountain in ${RG(v.region)} → raise ridge`)); break;
+      case "few_rivers": push("set_river_threshold", { value: Math.round(P.riverThr * 0.62) }); notes.push(L("大河数量不足 → 降低河流阈值", "too few major rivers → lower river threshold")); break;
       case "few_lakes": {
         if (P.hydro !== "filled") { push("fill_depressions", {}); break; }
         const used = new Set(P.basins.map(b => b.region));
         const want = W.spec.settlements.find(s => effItems(P, W.spec, s).includes("lakeside") && effRegion(P, s) && !used.has(effRegion(P, s)));
         const reg = want ? effRegion(P, want) : ["C", "SW", "NE", "W", "S"].find(r => !used.has(r)) || "C";
-        push("carve_basin", { region: reg }); notes.push(`湖泊不足 → 在${REGION_ZH[reg]}部挖盆地`); break;
+        push("carve_basin", { region: reg }); notes.push(L(`湖泊不足 → 在${RG(reg)}挖盆地`, `too few lakes → dig a basin in ${RG(reg)}`)); break;
       }
-      case "no_ocean": push("declare_unsatisfiable", { check_id: v.id, reason: "规格没有海，港口无法临海" }); notes.push("内陆区域不可能有港口 → 声明无法满足"); break;
-      case "rel_downstream": (settleT[v.target] = settleT[v.target] || new Set()).add("downstream:" + v.other); notes.push(`${v.label} → 沿水系下移`); break;
-      case "rel_days": (settleT[v.target] = settleT[v.target] || new Set()).add("near:" + v.other + "@" + v.days); notes.push(`${v.label} → 向目标方向迁移`); break;
+      case "no_ocean": push("declare_unsatisfiable", { check_id: v.id, reason: L("规格没有海，港口无法临海", "the spec has no sea, a port cannot reach it") }); notes.push(L("内陆区域不可能有港口 → 声明无法满足", "no port is possible inland → declared unsatisfiable")); break;
+      case "rel_downstream": (settleT[v.target] = settleT[v.target] || new Set()).add("downstream:" + v.other); notes.push(L(`${v.label} → 沿水系下移`, `${v.label} → move downstream`)); break;
+      case "rel_days": (settleT[v.target] = settleT[v.target] || new Set()).add("near:" + v.other + "@" + v.days); notes.push(L(`${v.label} → 向目标方向迁移`, `${v.label} → move towards the target`)); break;
       case "req_unmet": case "underwater": case "steep": case "wrong_region": case "lore_claim": {
         const s = W.spec.settlements.find(q => q.id === v.target); if (!s) break;
         settleT[s.id] = settleT[s.id] || new Set();
@@ -1870,21 +1920,22 @@ function scriptedStructured(W, report, history) {
     const conflictFails = failing.filter(f => f.conflict);
     if (conflictFails.length) {
       conflictFails.forEach(f => push("declare_unsatisfiable", { check_id: f.id, reason: f.conflict.reason }));
-      notes.push(`${s.name}：${conflictFails[0].conflict.reason} → 声明无法满足${conflictFails[0].conflict.alternatives.length ? `（建议${conflictFails[0].conflict.alternatives[0]}）` : ""}`);
+      notes.push(L(`${s.name}：${conflictFails[0].conflict.reason} → 声明无法满足${conflictFails[0].conflict.alternatives.length ? `（建议${conflictFails[0].conflict.alternatives[0]}）` : ""}`,
+        `${s.name}: ${conflictFails[0].conflict.reason} → declared unsatisfiable${conflictFails[0].conflict.alternatives.length ? ` (suggest: ${conflictFails[0].conflict.alternatives[0]})` : ""}`));
       continue;
     }
     if (lastFails.has(s.id)) {
       // moving alone did not work last round: change the terrain instead
       const eff = effItems(P, W.spec, s), reg = effRegion(P, s);
-      if (eff.includes("lakeside") && reg && !P.basins.some(b => b.region === reg)) { push("carve_basin", { region: reg }); if (P.hydro !== "filled") push("fill_depressions", {}); notes.push(`${s.name}附近无湖 → 在${REGION_ZH[reg]}部造湖`); }
-      else if (eff.some(q => q === "on_river" || q === "river_mouth") && P.riverThr > 90) { push("set_river_threshold", { value: Math.round(P.riverThr * 0.6) }); notes.push(`${s.name}附近无合适河道 → 降低河流阈值`); }
-      else if (eff.includes("near_mountain") && reg) { push("raise_ridge", { region: reg, amount: 0.12 }); notes.push(`${s.name}附近山地不够 → 抬高山脊`); }
-      else { failing.forEach(f => push("declare_unsatisfiable", { check_id: f.id, reason: "多次移动仍无法满足" })); notes.push(`${s.name}多次移动失败 → 声明无法满足`); continue; }
+      if (eff.includes("lakeside") && reg && !P.basins.some(b => b.region === reg)) { push("carve_basin", { region: reg }); if (P.hydro !== "filled") push("fill_depressions", {}); notes.push(L(`${s.name}附近无湖 → 在${RG(reg)}造湖`, `no lake near ${s.name} → make one in ${RG(reg)}`)); }
+      else if (eff.some(q => q === "on_river" || q === "river_mouth") && P.riverThr > 90) { push("set_river_threshold", { value: Math.round(P.riverThr * 0.6) }); notes.push(L(`${s.name}附近无合适河道 → 降低河流阈值`, `no river near ${s.name} → lower river threshold`)); }
+      else if (eff.includes("near_mountain") && reg) { push("raise_ridge", { region: reg, amount: 0.12 }); notes.push(L(`${s.name}附近山地不够 → 抬高山脊`, `too little mountain near ${s.name} → raise ridge`)); }
+      else { failing.forEach(f => push("declare_unsatisfiable", { check_id: f.id, reason: L("多次移动仍无法满足", "still unmet after repeated moves") })); notes.push(L(`${s.name}多次移动失败 → 声明无法满足`, `${s.name}: moves keep failing → declared unsatisfiable`)); continue; }
     }
     push("move_settlement", { id: s.id, targets: [...tg] });
-    notes.push(`${s.name}：${failing.map(f => f.label.replace(s.name, "").replace(/^（.*?）/, "")).join("、") || "与设定不符"} → 移动`);
+    notes.push(L(`${s.name}：${failing.map(f => f.label.replace(s.name, "").replace(/^（.*?）/, "")).join("、") || "与设定不符"} → 移动`, `${s.name}: ${failing.map(f => f.label.replace(s.name, "").replace(/^ \(.*?\)/, "")).join("; ") || "does not match the spec"} → move`));
   }
-  return { analysis: notes.length ? [...new Set(notes)].join("；") + "。" : "没有可用的修正。", actions: acts.map(({ tool, args }) => ({ tool, args })) };
+  return { analysis: notes.length ? [...new Set(notes)].join(L("；", "; ")) + L("。", ".") : L("没有可用的修正。", "No repair available."), actions: acts.map(({ tool, args }) => ({ tool, args })) };
 }
 function scriptedBlind(W, report, history, it) {
   const r = rng(W.P.seed * 31 + it * 7);
@@ -1900,7 +1951,7 @@ function scriptedBlind(W, report, history, it) {
   ];
   const i1 = Math.floor(r() * pool.length); let i2 = Math.floor(r() * pool.length); if (i2 === i1) i2 = (i2 + 1) % pool.length;
   const acts = [pool[i1](), pool[i2]()].filter(Boolean);
-  return { analysis: "只知道本轮结果是“不通过”，不知道哪里出错，只能试探性地调整参数。", actions: acts };
+  return { analysis: L("只知道本轮结果是“不通过”，不知道哪里出错，只能试探性地调整参数。", "Only told this round FAILED, not why, so the parameters are adjusted by trial."), actions: acts };
 }
 
 // ---------- map facts & scripted lore ----------
@@ -1919,13 +1970,20 @@ function mapFacts(W) {
   return {
     region: W.spec.name,
     settlements: S.map(s => ({ ...settlementFacts(W, s), ...geoProfile(W, s.id) })),
-    rivers: W.hy.rivers.map(r => ({ id: r.id, name: r.name, length_km: r.lengthKm, ends: r.kind === "sea" ? `在${REGION_ZH[r.mouthRegion]}部入海` : "流出图幅", passes: r.regions.map(x => REGION_ZH[x]) })),
+    rivers: W.hy.rivers.map(r => ({ id: r.id, name: r.name, length_km: r.lengthKm, ends: r.kind === "sea" ? L(`在${RG(r.mouthRegion)}入海`, `reaches the sea in ${RG(r.mouthRegion)}`) : L("流出图幅", "leaves the map"), passes: r.regions.map(x => REGION_ZH[x]) })),
     lakes: W.hy.lakes.map(l => ({ id: l.id, name: l.name, region: REGION_ZH[l.region] })),
     mountains: W.spec.mountains.map(m => ({ id: m.id, name: m.name, region: REGION_ZH[m.region] })),
     pairs,
-    geography_notes: "accessibility 0-1 为地形通达度，defensibility 0-1 为制高与隘口优势，road_centrality 为路网中转比重，hinterland_cells 为一天半路程内可达的陆地格数（1 格 = 2 km）",
+    geography_notes: `accessibility 0-1 = how easily terrain is crossed; defensibility 0-1 = commanding height or choke point; road_centrality = share of road through-traffic; hinterland_cells = land cells within 1.5 days (1 cell = ${kmOf(W)} km)`,
   };
 }
+const FLAVOR_EN = {
+  port: ["the salt fog never lifts, and the dock lamps sway on windless nights", "fishing boats and smugglers share one jetty, and nobody counts the boats"],
+  city: ["the clock tower always strikes one time too many", "the lanes inside the old wall follow a strange geometry nobody remembers designing"],
+  town: ["the waterwheel never stops, and the miller swears the river is heavier than it was ten years ago", "the market meets every tenth day, and strangers always leave after it closes"],
+  village: ["the boundary stone at the gate is carved with signs no one can read", "villagers shut every window facing the hills before sunset"],
+  fortress: ["the stone fort guards the pass, and its roll lists more men than its barracks hold", "the beacon on the tower has not been lit in years"],
+};
 const FLAVOR = {
   port: ["咸雾终年不散，码头上的灯常在无风的夜里摇晃", "渔船与走私船共用同一段栈桥，镇上的人从不数船"],
   city: ["钟楼整点敲响时总会多出一声", "旧城墙内的街巷按奇怪的几何图形排列，没人记得是谁设计的"],
@@ -1940,22 +1998,22 @@ function nearestOther(W, s) {
 }
 function scriptedLoreEntry(W, s, k, mode) {
   const f = settlementFacts(W, s); const bits = []; const claims = [];
-  bits.push(`[[${s.id}]]位于${REGION_ZH[f.region]}部，${FLAVOR[s.type][k % 2]}。`);
+  bits.push(L(`[[${s.id}]]位于${RG(f.region)}，${FLAVOR[s.type][k % 2]}。`, `[[${s.id}]] lies in ${RG(f.region)}; ${FLAVOR_EN[s.type][k % 2]}.`));
   claims.push({ type: "in_region", s: s.id, region: f.region });
-  if (f.coastal && f.river) { bits.push(`[[${f.river}]]在城边汇入大海。`); claims.push({ type: "coastal", s: s.id }, { type: "on_river", s: s.id, river: f.river }); }
-  else if (f.coastal) { bits.push("镇子正对着灰色的海。"); claims.push({ type: "coastal", s: s.id }); }
-  else if (f.river) { bits.push(`[[${f.river}]]从镇旁流过。`); claims.push({ type: "on_river", s: s.id, river: f.river }); }
-  if (f.lakeside) { bits.push("镇外的湖面在冬天也不结冰。"); claims.push({ type: "lakeside", s: s.id }); }
-  if (f.near_mountains.length) { bits.push(`背后是[[${f.near_mountains[0]}]]的阴影。`); claims.push({ type: "near_mountain", s: s.id, mountain: f.near_mountains[0] }); }
-  bits.push(`四周是${BIOME_ZH[f.biome]}。`); claims.push({ type: "biome", s: s.id, biome: f.biome });
+  if (f.coastal && f.river) { bits.push(L(`[[${f.river}]]在城边汇入大海。`, `The [[${f.river}]] meets the sea at its edge.`)); claims.push({ type: "coastal", s: s.id }, { type: "on_river", s: s.id, river: f.river }); }
+  else if (f.coastal) { bits.push(L("镇子正对着灰色的海。", "It faces a grey sea.")); claims.push({ type: "coastal", s: s.id }); }
+  else if (f.river) { bits.push(L(`[[${f.river}]]从镇旁流过。`, `The [[${f.river}]] runs past it.`)); claims.push({ type: "on_river", s: s.id, river: f.river }); }
+  if (f.lakeside) { bits.push(L("镇外的湖面在冬天也不结冰。", "The lake beyond it never freezes, even in winter.")); claims.push({ type: "lakeside", s: s.id }); }
+  if (f.near_mountains.length) { bits.push(L(`背后是[[${f.near_mountains[0]}]]的阴影。`, `Behind it lies the shadow of [[${f.near_mountains[0]}]].`)); claims.push({ type: "near_mountain", s: s.id, mountain: f.near_mountains[0] }); }
+  bits.push(L(`四周是${BIOME_ZH[f.biome]}。`, `All around is ${BIOME_ZH[f.biome]}.`)); claims.push({ type: "biome", s: s.id, biome: f.biome });
   const no = nearestOther(W, s);
   if (no) {
     const days = mode === "draft" ? Math.round(no.straight * kmOf(W) / KM_PER_DAY * 2) / 2 : travelDays(W, s.id, no.o.id);
-    if (days != null) { bits.push(`去往[[${no.o.id}]]约需 ${days} 天，路在${dirOf(W, no.o.id, s.id)}方。`); claims.push({ type: "travel_days", a: s.id, b: no.o.id, days }, { type: "direction", a: no.o.id, b: s.id, dir: dirOf(W, no.o.id, s.id) }); }
+    if (days != null) { bits.push(L(`去往[[${no.o.id}]]约需 ${days} 天，路在${dirOf(W, no.o.id, s.id)}方。`, `[[${no.o.id}]] is about ${days} days away, to the ${dirOf(W, no.o.id, s.id)}.`)); claims.push({ type: "travel_days", a: s.id, b: no.o.id, days }, { type: "direction", a: no.o.id, b: s.id, dir: dirOf(W, no.o.id, s.id) }); }
     const sep = W.spec.mountains.find(m => crossesMountain(W, s.id, no.o.id, m.id));
-    if (sep) { bits.push(`两地之间隔着[[${sep.id}]]。`); claims.push({ type: "separated_by", a: s.id, b: no.o.id, mountain: sep.id }); }
+    if (sep) { bits.push(L(`两地之间隔着[[${sep.id}]]。`, `[[${sep.id}]] stands between them.`)); claims.push({ type: "separated_by", a: s.id, b: no.o.id, mountain: sep.id }); }
   }
-  return { id: "E" + (k + 1), subject: s.id, title: `${s.name}`, text: bits.join(""), claims };
+  return { id: "E" + (k + 1), subject: s.id, title: `${s.name}`, text: bits.join(L("", " ")), claims };
 }
 function scriptedLore(W, mode) { return W.spec.settlements.map((s, k) => scriptedLoreEntry(W, s, k, mode)); }
 
@@ -1963,7 +2021,16 @@ function scriptedLore(W, mode) { return W.spec.settlements.map((s, k) => scripte
 // A whole WorldSpec drawn from a seed, so the offline demo can show the generator's range without a model.
 function randomSpec(seed) {
   const r = rng(seed), pick = a => a[Math.floor(r() * a.length)], wpick = o => { let t = r() * Object.values(o).reduce((a, b) => a + b, 0); for (const [k, w] of Object.entries(o)) if ((t -= w) <= 0) return k; return Object.keys(o)[0]; };
-  const used = new Set(), nm = (suf, two) => { for (let t = 0; t < 40; t++) { const a = pick(HAMLET_A), b = pick(HAMLET_A), n = ((two || r() < 0.7) && a !== b ? a + b : a) + suf; if (!used.has(n)) { used.add(n); return n; } } return pick(HAMLET_A) + suf; };
+  const EN_SUF = { 城: "", 港: " Harbour", 镇: "", 村: "", 堡: " Keep", 山: " Hills", 岭: " Ridge", 脊: " Spine", 峰: " Peaks", 山脉: " Mountains", 之地: " Lands", 王国: " Kingdom", 边境: " March", 诸邦: " Reaches", 古国: " Realm", 河: " River", 江: " River", 水: "water", 溪: " Brook", 川: " Run", 湖: "Lake ", 泊: " Mere", 潭: " Tarn", 海子: " Water" };
+  const used = new Set(), nm = (suf, two) => {
+    if (LANG === "en") {
+      for (let t = 0; t < 40; t++) {
+        const base = pick(NAME_EN_A) + (suf === "城" || suf === "镇" || suf === "村" || two ? pick(NAME_EN_B) : pick(NAME_EN_B));
+        const e = EN_SUF[suf] ?? "", n = e.endsWith(" ") ? e + base : base + e;
+        if (!used.has(n)) { used.add(n); return n; }
+      }
+      return pick(NAME_EN_A);
+    } for (let t = 0; t < 40; t++) { const a = pick(HAMLET_A), b = pick(HAMLET_A), n = ((two || r() < 0.7) && a !== b ? a + b : a) + suf; if (!used.has(n)) { used.add(n); return n; } } return pick(HAMLET_A) + suf; };
   const landform = pick(LANDFORMS);
   const sea = LANDFORM_SIDE[landform] !== "none";
   const ocean_side = ["coast", "fjords", "peninsula"].includes(landform) ? pick(["E", "W", "N", "S"]) : LANDFORM_SIDE[landform];
@@ -2003,21 +2070,33 @@ function landByRegion(spec) {
 }
 // a readable summary of a spec, used as the description of a random world
 function describeSpec(sp) {
+  if (LANG === "en") {
+    const s = normalizeSpec(sp), T = { polar: "polar", cold: "cold", temperate: "mild", warm: "warm", hot: "hot" }, H = { arid: " and arid", dry: " and dry", normal: "", humid: " and humid" };
+    const sc = { region: "about 1024 km across", kingdom: "a kingdom-scale land about 2048 km across", continent: "a continent-scale land about 4096 km across" }[s.scale || "region"];
+    const cz = s.climate_zone ? `${T[s.climate_zone.temperature]}${H[s.climate_zone.humidity]}` : "mild";
+    const side = { E: "east", W: "west", N: "north", S: "south" };
+    return `${s.name}: ${sc}, a ${LANDFORM_ZH[s.landform] || "coast"} with a ${cz} climate; the wind blows from the ${side[s.wind_from]}. `
+      + `Mountains: ${s.mountains.map(m => `${m.name} in ${RG(m.region)}`).join(", ")}. `
+      + `At least ${s.min_major_rivers} major rivers${s.min_lakes ? ` and ${s.min_lakes} lakes` : ""}. `
+      + s.settlements.map(t => `${t.region ? `In ${RG(t.region)}, ` : ""}the ${TYPE_ZH[t.type]} ${t.name}${t.requires.length ? ` (${t.requires.map(q => REQ_ZH[q]).join(", ")})` : ""}`).join("; ") + ".";
+  }
   const s = normalizeSpec(sp), T = { polar: "极寒", cold: "寒冷", temperate: "温和", warm: "温暖", hot: "炎热" }, H = { arid: "干旱", dry: "偏干", normal: "", humid: "湿润" };
   const sc = { region: "约 1024 km 见方", kingdom: "约 2048 km 见方的王国尺度", continent: "约 4096 km 见方的大陆尺度" }[s.scale || "region"];
   const cz = s.climate_zone ? `${T[s.climate_zone.temperature]}${H[s.climate_zone.humidity]}` : "温和";
   const side = { E: "东", W: "西", N: "北", S: "南" };
   return `${s.name}：${sc}的${LANDFORM_ZH[s.landform] || "海岸"}，气候${cz}，风从${side[s.wind_from]}方吹来。`
-    + `山脉有${s.mountains.map(m => `${REGION_ZH[m.region]}部的「${m.name}」`).join("、")}。`
+    + `山脉有${s.mountains.map(m => `${RG(m.region)}的「${m.name}」`).join("、")}。`
     + `至少 ${s.min_major_rivers} 条大河${s.min_lakes ? `、${s.min_lakes} 个湖泊` : ""}。`
-    + s.settlements.map(t => `${REGION_ZH[t.region] || ""}部有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
+    + s.settlements.map(t => `${RG(t.region)}有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
 }
 
-if (typeof module !== "undefined") module.exports = { mapStats, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
+if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
 // ===================== END CORE =====================
 
 const PRESETS = [
-  { key: "coast", label: "雾港海岸（CoC 风格）",
+  { key: "coast", names_en: { "雾港海岸": "Fog Harbour Coast", "鸦脊山": "Ravenspine", "寒丘": "Coldhills", "灰锚港": "Greyanchor", "盐沼村": "Saltmarsh", "磨坊镇": "Milltown", "渡鸦渡": "Ravensford", "黑松村": "Blackpine", "静湖庄": "Stillmere", "北钟镇": "Northbell", "石冢堡": "Cairnhold" },
+    label: "雾港海岸（CoC 风格）", label_en: "Fog Harbour Coast (CoC)",
+    text_en: "A foggy 1920s coast on an eastern sea, about a thousand kilometres north to south. In the west the old north-south range Ravenspine; the westerlies blow over it. In the northeast the east-west hills Coldhills. At least three great rivers reach the sea and at least two lakes lie inland. At an eastern river mouth stands the port Greyanchor; on the southeastern shore the fishing village Saltmarsh; on a central river Milltown; on a southern river the ferry town Ravensford; at the western foothills Blackpine; by a southwestern lake Stillmere; in the north the small city Northbell; under the northeastern hills the fortress Cairnhold.",
     text: "1920 年代一片东临大海的雾气海岸，南北约一千公里。西部是南北走向的老山脉「鸦脊山」，常年西风从山那边吹来；东北有东西走向的丘陵「寒丘」。至少三条大河入海，内陆至少有两个湖。东部河口有港口「灰锚港」；东南海边有渔村「盐沼村」；中部河畔有「磨坊镇」；南部河边有渡口镇「渡鸦渡」；西部山脚有「黑松村」；西南湖边有「静湖庄」；北部有小城「北钟镇」；东北丘陵下有要塞「石冢堡」。",
     spec: { name: "雾港海岸", seed: 1926, ocean_side: "E", wind_from: "W",
       mountains: [{ name: "鸦脊山", region: "W", orientation: "NS" }, { name: "寒丘", region: "NE", orientation: "EW" }],
@@ -2034,7 +2113,9 @@ const PRESETS = [
         { name: "北钟镇", type: "city", region: "N", requires: [] },
         { name: "石冢堡", type: "fortress", region: "NE", requires: ["near_mountain"] },
       ] } },
-  { key: "kingdom", label: "双河王国（奇幻）",
+  { key: "kingdom", names_en: { "双河王国": "Two Rivers Kingdom", "霜冠山脉": "Frostcrown", "赤岩岭": "Redrock Ridge", "白塔城": "Whitetower", "铁门堡": "Irongate", "狼口关": "Wolfmouth", "潮湾": "Tidebay", "灰羽港": "Greyfeather", "琥珀集": "Amber Market", "麦浪村": "Wheatwave", "芦苇渡": "Reedford" },
+    label: "双河王国（奇幻）", label_en: "Two Rivers Kingdom (fantasy)",
+    text_en: "A kingdom about a thousand kilometres square with the sea to the south. Across the north runs the east-west range Frostcrown; cold winds blow from the north. In the east the north-south Redrock Ridge. At least four great rivers flow south to the sea. The capital Whitetower stands on a central river; the fortress Irongate under the northern mountains; the pass fort Wolfmouth in the eastern hills; the port Tidebay at a southern river mouth; the port Greyfeather on the southeastern coast; the town Amber Market in the northeast; the village Wheatwave in the west; the river village Reedford in the southwest.",
     text: "南临大海的王国，疆域约一千公里见方。北部横亘东西走向的「霜冠山脉」，冷风从北方吹来；东部有南北走向的「赤岩岭」。至少四条大河向南入海。王都「白塔城」在中部河畔；北部山下有要塞「铁门堡」；东部山口有关隘「狼口关」；南部河口有港口「潮湾」；东南海岸有港口「灰羽港」；东北有城镇「琥珀集」；西部有村庄「麦浪村」；西南有河边村庄「芦苇渡」。",
     spec: { name: "双河王国", seed: 4417, ocean_side: "S", wind_from: "N",
       mountains: [{ name: "霜冠山脉", region: "N", orientation: "EW" }, { name: "赤岩岭", region: "E", orientation: "NS" }],
@@ -2050,7 +2131,9 @@ const PRESETS = [
         { name: "麦浪村", type: "village", region: "W", requires: [] },
         { name: "芦苇渡", type: "village", region: "SW", requires: ["on_river"] },
       ] } },
-  { key: "island", label: "潮汐群岛主岛（岛屿）",
+  { key: "island", names_en: { "潮汐群岛": "Tide Isles", "灰烬脊": "Ashspine", "落潮港": "Ebbtide", "晨雾港": "Morningmist", "鲸骨村": "Whalebone", "钟隐村": "Hiddenbell", "稻田镇": "Paddytown" },
+    label: "潮汐群岛主岛（岛屿）", label_en: "Tide Isles main island",
+    text_en: "A large island surrounded by sea. Down its middle runs the north-south volcanic ridge Ashspine, and the east wind blows in from the sea. At least three great rivers and one crater lake. On the west coast the port Ebbtide, on the east coast the port Morningmist, in the north the fishing village Whalebone, at the central foothills the monastery village Hiddenbell, on a southern river Paddytown.",
     text: "一座被海包围的大岛。中部有南北走向的火山脊「灰烬脊」，东风从海上吹来。至少三条大河，一个火山湖。西岸有港口「落潮港」，东岸有港口「晨雾港」，北部有渔村「鲸骨村」，中部山脚有修道院村落「钟隐村」，南部河边有「稻田镇」。",
     spec: { name: "潮汐群岛", seed: 3031, ocean_side: "all", wind_from: "E",
       mountains: [{ name: "灰烬脊", region: "C", orientation: "NS" }],
@@ -2064,7 +2147,9 @@ const PRESETS = [
         { name: "钟隐村", type: "village", region: "C", requires: ["near_mountain"] },
         { name: "稻田镇", type: "town", region: "S", requires: ["on_river"] },
       ] } },
-  { key: "impossible", label: "内陆港口（矛盾需求）",
+  { key: "impossible", names_en: { "断碑高原": "Brokenstone Plateau", "断碑岭": "Brokenstone Ridge", "无潮港": "Tideless Harbour", "石屋村": "Stonehouse", "驼铃集": "Camelbell" },
+    label: "内陆港口（矛盾需求）", label_en: "Inland port (contradiction)",
+    text_en: "A landlocked plateau with no sea on any side. Across the middle runs the east-west Brokenstone Ridge; the wind comes from the west. There should be two great rivers. In the east a port city, Tideless Harbour; in the south a village under the hills, Stonehouse; in the west a river market town, Camelbell.",
     text: "一片四面不靠海的内陆高原。中部有一条东西走向的「断碑岭」，风从西边来。要有两条大河。东部要有一个港口城市「无潮港」，南部有靠山的村子「石屋村」，西部有河边集镇「驼铃集」。",
     spec: { name: "断碑高原", seed: 808, ocean_side: "none", wind_from: "W",
       mountains: [{ name: "断碑岭", region: "C", orientation: "EW" }],
@@ -2082,24 +2167,24 @@ if (typeof module !== "undefined") module.exports = { PRESETS };
 // Plan radius in map cells (1 cell = 2 km). Settlements are drawn larger than life, as on a fantasy map.
 const PLAN_R = { city: 14, port: 12.5, town: 8.5, fortress: 6, village: 4.5 };
 const ZONES = {
-  core:   { zh: "商业区", block: "#efc58f", bld: "#b87a45", h: [2.8, 7.5] },
-  civic:  { zh: "行政文化区", block: "#dccbeb", bld: "#8a70ae", h: [2.2, 4] },
-  res:    { zh: "住宅区（密集）", block: "#f1d6bb", bld: "#bd8865", h: [1.5, 3.2] },
-  sub:    { zh: "住宅区（低密度）", block: "#dfe8c6", bld: "#b39a80", h: [0.8, 1.3] },
-  ind:    { zh: "工业区", block: "#d3d1de", bld: "#7f7d8b", h: [1.3, 2.4] },
-  harbor: { zh: "港区", block: "#c9dbe6", bld: "#6f8ba0", h: [1.1, 1.9] },
-  mil:    { zh: "军营", block: "#d8cfb2", bld: "#716955", h: [1.1, 1.8] },
-  park:   { zh: "公园绿地", ground: "#a6cd88" },
-  cem:    { zh: "墓地", ground: "#b8cca8" },
-  plaza:  { zh: "中心广场", ground: "#ece2cf" },
+  core:   { zh: "商业区", en: "commercial", block: "#efc58f", bld: "#b87a45", h: [2.8, 7.5] },
+  civic:  { zh: "行政文化区", en: "civic and cultural", block: "#dccbeb", bld: "#8a70ae", h: [2.2, 4] },
+  res:    { zh: "住宅区（密集）", en: "dense housing", block: "#f1d6bb", bld: "#bd8865", h: [1.5, 3.2] },
+  sub:    { zh: "住宅区（低密度）", en: "suburban housing", block: "#dfe8c6", bld: "#b39a80", h: [0.8, 1.3] },
+  ind:    { zh: "工业区", en: "industrial", block: "#d3d1de", bld: "#7f7d8b", h: [1.3, 2.4] },
+  harbor: { zh: "港区", en: "harbour", block: "#c9dbe6", bld: "#6f8ba0", h: [1.1, 1.9] },
+  mil:    { zh: "军营", en: "barracks", block: "#d8cfb2", bld: "#716955", h: [1.1, 1.8] },
+  park:   { zh: "公园绿地", en: "parks", ground: "#a6cd88" },
+  cem:    { zh: "墓地", en: "cemetery", ground: "#b8cca8" },
+  plaza:  { zh: "中心广场", en: "central plaza", ground: "#ece2cf" },
 };
 const STREET = "#dcd6ca", ROAD_FILL = "#fff3c9", ROAD_EDGE = "#b9a67f", WATER = "#86b6cc", WALL = "#6a6255";
 const LANDMARK = {
-  plaza: { zh: "中心广场", icon: "◇" }, cityhall: { zh: "市政厅", icon: "▣" }, cathedral: { zh: "大教堂", icon: "✝" },
-  church: { zh: "教堂", icon: "✝" }, chapel: { zh: "礼拜堂", icon: "✝" }, hospital: { zh: "医院", icon: "✚" },
-  clinic: { zh: "诊所", icon: "✚" }, market: { zh: "市场", icon: "◍" }, school: { zh: "学校", icon: "✎" },
-  station: { zh: "火车站", icon: "⊟" }, factory: { zh: "工厂", icon: "⌂" }, lighthouse: { zh: "灯塔", icon: "✦" },
-  keep: { zh: "城堡主楼", icon: "♜" }, library: { zh: "图书馆", icon: "▤" },
+  plaza: { zh: "中心广场", en: "central plaza", icon: "◇" }, cityhall: { zh: "市政厅", en: "city hall", icon: "▣" }, cathedral: { zh: "大教堂", en: "cathedral", icon: "✝" },
+  church: { zh: "教堂", en: "church", icon: "✝" }, chapel: { zh: "礼拜堂", en: "chapel", icon: "✝" }, hospital: { zh: "医院", en: "hospital", icon: "✚" },
+  clinic: { zh: "诊所", en: "clinic", icon: "✚" }, market: { zh: "市场", en: "market", icon: "◍" }, school: { zh: "学校", en: "school", icon: "✎" },
+  station: { zh: "火车站", en: "railway station", icon: "⊟" }, factory: { zh: "工厂", en: "factory", icon: "⌂" }, lighthouse: { zh: "灯塔", en: "lighthouse", icon: "✦" },
+  keep: { zh: "城堡主楼", en: "keep", icon: "♜" }, library: { zh: "图书馆", en: "library", icon: "▤" },
 };
 
 // ---------- style profile (proposed by the intent layer) -> city-planner knobs ----------
@@ -3546,7 +3631,7 @@ function mountainPeaks(W) {
 }
 function addLabel(cls, html, x, y, z, sid) {
   const el = document.createElement("div"); el.className = "l3 " + cls; el.innerHTML = html;
-  if (sid) { el.dataset.sid = sid; el.title = "点击查看城市详图"; el.onclick = () => { selectCity(sid); flyTo(sid); }; }
+  if (sid) { el.dataset.sid = sid; el.title = L("点击查看城市详图", "Click to see the city plan"); el.onclick = () => { selectCity(sid); flyTo(sid); }; }
   $("#labels3d").appendChild(el);
   V3.labels.push({ el, v: new THREE.Vector3(x, y, z) });
 }
@@ -3909,7 +3994,7 @@ function gmCompose(ctx, W, size, shot, ready) {
   ctx.strokeStyle = "rgba(196,164,104,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(22, 22, size - 44, size - 44);
   const cap = GM.focus ? `${W.spec.name} · ${nameOf(W, GM.focus)}` : W.spec.name;
   gmDrawLabel(ctx, cap, size / 2, 50, `600 30px ${SERIF}`, GM.gold);
-  if (!ready) gmDrawLabel(ctx, "正在生成城镇…", size / 2, size / 2, `500 26px ${SERIF}`, GM.dim);
+  if (!ready) gmDrawLabel(ctx, L("正在生成城镇…", "Planning towns…"), size / 2, size / 2, `500 26px ${SERIF}`, GM.dim);
 }
 function gmExplored(px, py) {
   if (!GM.fog || !GM.mask) return true;
@@ -3956,21 +4041,29 @@ const keyStore = {
   set(v) { try { v ? localStorage.setItem(OR_KEY_SLOT, v) : localStorage.removeItem(OR_KEY_SLOT); } catch {} },
 };
 
+function tierLabels() {
+  const m = S.models || {}, w = x => L(`（${x}）`, ` (${x})`);
+  $("#tier").options[0].text = "default" + w(m.default || L("更准", "more accurate"));
+  $("#tier").options[1].text = "quick" + w(m.quick || L("更快", "faster"));
+}
+function setStatus(msg, state) {
+  S.statusMsg = msg; S.statusState = state;
+  $("#agentStatus").textContent = typeof msg === "function" ? msg() : msg; $("#agentStatus").dataset.state = state;
+}
 function unlockModel(sample, models, msg) {
   S.sample = sample;
   $("#engClaude").disabled = false;
   if (!S.running) { $("#engClaude").checked = true; $("#tierWrap").hidden = false; }   // a prompt-first page wants the model by default
-  $("#tier").options[0].text = `default（${models.default}）`;
-  $("#tier").options[1].text = `quick（${models.quick}）`;
-  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "ok";
+  S.models = models; tierLabels();
+  setStatus(msg, "ok");
 }
 function lockModel(msg) {
   S.sample = null;
   $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true;
-  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "off";
+  setStatus(msg, "off");
 }
-const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，也没有连上本地代理。在下方填入 OpenRouter API key 即可解锁模型阶段；"
-  + "不填就只跑离线脚本策略。";
+const NO_MODEL_MSG = () => L("这个页面不在 claude.ai 的 artifact 运行时里，也没有连上本地代理。在下方填入 OpenRouter API key 即可解锁模型阶段；不填就只跑离线脚本策略。",
+  "This page is not running inside claude.ai and found no local proxy. Paste an OpenRouter API key below to unlock the model stages; without one only the offline scripted policies run.");
 
 (async () => {
   try {
@@ -3979,8 +4072,8 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
     if (!s) throw 0;
     S.sample = s;
     $("#engClaude").disabled = false;
-    $("#agentStatus").textContent = "Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）";
-    $("#agentStatus").dataset.state = "ok";
+    setStatus(() => L("Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）",
+      "Claude is available: with Claude selected, planning, relations, negotiation, repair and lore are real model calls (the first call asks for permission)."), "ok");
     return;
   } catch {}
   try {
@@ -3989,7 +4082,8 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
     const h = r.ok && await r.json();
     if (!h || !h.ok) throw 0;
     unlockModel(openRouterSample(proxyPost), h.models,
-      `本地 OpenRouter 代理可用：切换到 Claude 后，各阶段经 server.js 调用 ${h.models.default}，API key 只留在本机。`);
+      () => L(`本地 OpenRouter 代理可用：切换到 Claude 后，各阶段经 server.js 调用 ${h.models.default}，API key 只留在本机。`,
+        `Local OpenRouter proxy found: with Claude selected, every stage calls ${h.models.default} through server.js, and the API key stays on this machine.`));
     return;
   } catch {}
   // A plain static host (GitHub Pages) or a file opened from disk: offer the key field.
@@ -3999,7 +4093,7 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
   $("#orKey").onkeydown = e => { if (e.key === "Enter") useKey($("#orKey").value.trim()); };
   $("#orKeyForget").onclick = () => {
     keyStore.set(null); $("#orKey").value = ""; $("#orKeyForget").hidden = true;
-    $("#orKeyMsg").textContent = "已从这个浏览器删除 key。"; lockModel(NO_MODEL_MSG);
+    $("#orKeyMsg").textContent = L("已从这个浏览器删除 key。", "Key removed from this browser."); lockModel(NO_MODEL_MSG);
   };
   const saved = keyStore.get();
   if (saved) { $("#orKey").value = saved; useKey(saved); }
@@ -4008,19 +4102,19 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
 // Check the key against OpenRouter before unlocking, so a typo surfaces here rather than mid-run.
 async function useKey(key) {
   const msg = $("#orKeyMsg");
-  if (!/^sk-or-/.test(key)) { msg.textContent = "这不像 OpenRouter 的 key（应以 sk-or- 开头）。"; return; }
-  msg.textContent = "正在验证 key…"; $("#orKeyUse").disabled = true;
+  if (!/^sk-or-/.test(key)) { msg.textContent = L("这不像 OpenRouter 的 key（应以 sk-or- 开头）。", "That does not look like an OpenRouter key (it should start with sk-or-)."); return; }
+  msg.textContent = L("正在验证 key…", "Checking the key…"); $("#orKeyUse").disabled = true;
   try {
     const r = await fetch(`${OR_API}/key`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
-    if (r.status === 401) { msg.textContent = "OpenRouter 不认这个 key（无效或已被撤销）。"; return; }
-    if (!r.ok) { msg.textContent = `验证失败（HTTP ${r.status}），稍后再试。`; return; }
+    if (r.status === 401) { msg.textContent = L("OpenRouter 不认这个 key（无效或已被撤销）。", "OpenRouter rejected this key (invalid or revoked)."); return; }
+    if (!r.ok) { msg.textContent = L(`验证失败（HTTP ${r.status}），稍后再试。`, `Check failed (HTTP ${r.status}); try again later.`); return; }
     const d = (await r.json()).data || {};
     keyStore.set(key); $("#orKeyForget").hidden = false;
-    const left = d.limit_remaining != null ? `剩余额度 $${(+d.limit_remaining).toFixed(2)}` : "无额度上限";
-    msg.textContent = `key 有效，${left}。只保存在这个浏览器里，请求直接发往 openrouter.ai。`;
-    unlockModel(openRouterSample(directPost(key)), OR_MODELS, `已用你的 OpenRouter key 解锁：切换到 Claude 后，各阶段直接调用 ${OR_MODELS.default}。`);
+    const left = d.limit_remaining != null ? L(`剩余额度 $${(+d.limit_remaining).toFixed(2)}`, `$${(+d.limit_remaining).toFixed(2)} credit left`) : L("无额度上限", "no credit limit");
+    msg.textContent = L(`key 有效，${left}。只保存在这个浏览器里，请求直接发往 openrouter.ai。`, `Key accepted, ${left}. It is kept only in this browser, and requests go straight to openrouter.ai.`);
+    unlockModel(openRouterSample(directPost(key)), OR_MODELS, () => L(`已用你的 OpenRouter key 解锁：切换到 Claude 后，各阶段直接调用 ${OR_MODELS.default}。`, `Unlocked with your OpenRouter key: with Claude selected, every stage calls ${OR_MODELS.default} directly.`));
   } catch {
-    msg.textContent = "连不上 openrouter.ai，检查网络后再试。";
+    msg.textContent = L("连不上 openrouter.ai，检查网络后再试。", "Cannot reach openrouter.ai; check the network and try again.");
   } finally { $("#orKeyUse").disabled = false; }
 }
 
@@ -4111,14 +4205,19 @@ function openRouterSample(post) {
 function initControls() {
   // example prompts: clicking one only fills the box. The four presets double as examples because each carries a
   // hand-written WorldSpec, which is what lets the offline engine run them (and what the experiments score against).
-  $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
-  $("#examples").querySelectorAll("button").forEach(b => b.onclick = () => { $("#desc").value = EXAMPLES[+b.dataset.k].text; $("#desc").focus(); });
-  $("#desc").value = PRESETS[0].text;
+  let lang = "zh"; try { lang = localStorage.getItem("region-map-agent.lang") || (/^zh/i.test(navigator.language || "zh") ? "zh" : "en"); } catch {}
+  setLang(lang);
+  $("#langBtn").onclick = () => setLang(LANG === "en" ? "zh" : "en");
+  renderExamples();
+  $("#desc").value = L(PRESETS[0].text, PRESETS[0].text_en);
   $("#randomBtn").onclick = () => { newRandomWorld(); runAgent({ eng: "offline" }); };
   $("#layoutBtn").onclick = () => setWide(!document.body.classList.contains("wide"));
+  $("#savePng").onclick = () => savePng();
+  $("#histClear").onclick = () => { if (confirm(L("清空全部历史记录？", "Clear all history?"))) { writeHistory([]); S.recordId = null; renderHistory(); } };
+  renderHistory();
   let wide = true; try { wide = localStorage.getItem("region-map-agent.layout") !== "side"; } catch {}
   setWide(wide);
-  for (const r of REGIONS) { $("#editR").add(new Option(REGION_ZH[r] + "部", r)); $("#ridgeR").add(new Option(REGION_ZH[r] + "部", r)); }
+  fillRegionSelects();
   document.querySelectorAll('input[name="engine"]').forEach(el => el.onchange = () => { $("#tierWrap").hidden = engine() !== "claude"; });
   $("#run").onclick = () => runAgent();
   $("#stop").onclick = () => { if (S.ctl) S.ctl.abort(); };
@@ -4139,7 +4238,7 @@ function initControls() {
     if (x < 0 || y < 0 || x >= N || y >= N) return;
     showCell(sn.W, x, y);
   });
-  cv.addEventListener("mouseleave", () => { $("#readout").textContent = READOUT_HINT; });
+  cv.addEventListener("mouseleave", () => { $("#readout").textContent = READOUT_HINT_FN(); });
   cv.addEventListener("click", e => {
     const sn = curSnap(); if (!sn) return;
     const r = cv.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width * N, y = (e.clientY - r.top) / r.height * N;
@@ -4160,7 +4259,16 @@ function initControls() {
   gm.addEventListener("mousemove", e => { const ic = gmPick(e); gm.style.cursor = ic ? "pointer" : "default"; if (GM.hover !== ic) { GM.hover = ic; renderGameMap(); } });
   $("#camTop").onclick = () => { setView("top"); };
 }
-const READOUT_HINT = "把鼠标移到地图上查看格点信息。";
+const READOUT_HINT_FN = () => L("把鼠标移到地图上查看格点信息。", "Hover the map to read a cell.");
+function fillRegionSelects() {
+  for (const id of ["#editR", "#ridgeR"]) { const el = $(id), v = el.value; el.innerHTML = ""; for (const r of REGIONS) el.add(new Option(L(REGION_ZH[r] + "部", REGION_ZH[r][0].toUpperCase() + REGION_ZH[r].slice(1)), r)); if (v) el.value = v; }
+}
+function updateScaleHint() {
+  if (!S.spec || !S.spec.settlements) return;
+  const km = (SCALES[S.spec.scale] || SCALES.region).km * N;
+  $("#scaleHint").textContent = L(`图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`,
+    `Map ${km} × ${km} km, 512 × 512 cells (${km / N} km each), north up.${S.spec.landform ? ` Landform: ${LANDFORM_ZH[S.spec.landform]}.` : ""}`);
+}
 function setWide(on) {
   document.body.classList.toggle("wide", on);
   $("#layoutBtn").setAttribute("aria-pressed", String(on));
@@ -4168,13 +4276,16 @@ function setWide(on) {
   if (V3 && V3.ok) { resize3D(); setView("oblique"); }
   if (S.view === "game") renderGameMap(true);
 }
-const EXAMPLES = [
-  { label: "沙漠绿洲帝国", text: "一个被沙漠包围的绿洲帝国" },
-  { label: "维京群岛", text: "北方冰海上的维京群岛" },
-  { label: "热带火山岛", text: "热带海上的一座火山岛，岛上有古老的神庙和走私者的港口" },
-  { label: "峡湾王国", text: "寒冷多雨的峡湾海岸，山民王国沿着峡湾修建堡垒" },
-  ...PRESETS.map(p => ({ label: p.label, text: p.text })),
+const EXAMPLES_ = [
+  { label: ["沙漠绿洲帝国", "Desert oasis empire"], text: ["一个被沙漠包围的绿洲帝国", "An oasis empire surrounded by desert"] },
+  { label: ["维京群岛", "Viking isles"], text: ["北方冰海上的维京群岛", "Viking islands in a northern ice sea"] },
+  { label: ["热带火山岛", "Tropical volcano"], text: ["热带海上的一座火山岛，岛上有古老的神庙和走私者的港口", "A volcanic island in a tropical sea, with ancient temples and a smugglers' port"] },
+  { label: ["峡湾王国", "Fjord kingdom"], text: ["寒冷多雨的峡湾海岸，山民王国沿着峡湾修建堡垒", "A cold, rainy fjord coast where mountain kingdoms build forts along the inlets"] },
+  ...PRESETS.map(p => ({ label: [p.label, p.label_en], text: [p.text, p.text_en] })),
 ];
+const EXAMPLES = new Proxy(EXAMPLES_, { get: (t, k) => typeof k === "string" && /^\d+$/.test(k) ? { label: L(...t[k].label), text: L(...t[k].text) } : k === "map" ? f => t.map((e, i) => f({ label: L(...e.label), text: L(...e.text) }, i)) : t[k] });
+// the same description in the other language, so switching keeps an example selected
+const otherLangText = d => { for (const e of EXAMPLES_) { const k = e.text.indexOf(d); if (k >= 0) return e.text[1 - k]; } return null; };
 // a random world skips the planner: its WorldSpec is drawn from a seed, and the description is a summary of it
 function newRandomWorld() {
   S.randomSpec = randomSpec(Math.floor(Math.random() * 1e6));
@@ -4183,8 +4294,9 @@ function newRandomWorld() {
 }
 function showCell(W, x, y) {
   const i = y * N + x, rel = W.h[i] - W.P.sea;
-  const elev = W.ocean[i] ? `水深约 ${Math.round(-rel * 6000)} m` : `海拔约 ${Math.round(Math.max(0, rel) * 6000)} m`;
-  $("#readout").textContent = `${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * kmOf(W)} km、北界 ${y * kmOf(W)} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`;
+  const elev = W.ocean[i] ? L(`水深约 ${Math.round(-rel * 6000)} m`, `depth about ${Math.round(-rel * 6000)} m`) : L(`海拔约 ${Math.round(Math.max(0, rel) * 6000)} m`, `elevation about ${Math.round(Math.max(0, rel) * 6000)} m`);
+  $("#readout").textContent = L(`${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * kmOf(W)} km、北界 ${y * kmOf(W)} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`,
+    `${RG(regionOf(x, y))}, ${x * kmOf(W)} km from the west edge and ${y * kmOf(W)} km from the north; ${elev}, moisture ${W.moist[i].toFixed(2)}, ${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? ", river channel" : ""}`);
 }
 function setViewMode(v) {
   if ((v === "3d" || v === "game") && !(V3 && (V3.ok || init3D()))) v = "2d";
@@ -4195,17 +4307,198 @@ function setViewMode(v) {
   $("#ctl3d").hidden = v !== "3d";
   $("#gamemap").hidden = v !== "game";
   $("#ctlgame").hidden = v !== "game";
-  $("#readout").textContent = v === "game" ? "俯视渲染叠加探索迷雾与图标；点击城镇图标可在下方查看它的规划详图。" : READOUT_HINT;
+  $("#readout").textContent = v === "game" ? L("俯视渲染叠加探索迷雾与图标；点击城镇图标可在下方查看它的规划详图。", "Top-down render with fog of war and icons; click a town icon to see its plan below.") : READOUT_HINT_FN();
   if (v === "3d") resize3D();
   renderMap();
 }
 
 function setBusy(b, msg) {
   S.running = b;
-  for (const id of ["#run", "#loreBtn", "#moveBtn", "#ridgeBtn", "#rewriteBtn", "#obeyBtn"]) $(id).disabled = b;
+  for (const id of ["#run", "#loreBtn", "#moveBtn", "#ridgeBtn", "#rewriteBtn", "#obeyBtn", "#randomBtn"]) $(id).disabled = b;
   $("#stop").hidden = !(b && engine() === "claude");
-  $("#busy").textContent = b ? (msg || "运行中") : "";
-  if (!b) updateEditButtons();
+  $("#busy").textContent = b ? (msg || L("运行中", "Running")) : "";
+  if (!b) { updateEditButtons(); saveRecord(); }     // every finished run or edit updates its history record
+}
+
+// ---------- language ----------
+// Static page text is translated by exact match against this table (originals are kept on the node, so switching
+// back restores them); everything the program writes goes through L(). Past trace entries keep the language they
+// were written in.
+const I18N_EN = {
+  "区域地图 Agent 演示": "Region Map Agent demo", "区域地图 Agent": "Region Map Agent",
+  "把一段世界观描述变成地形、水系和聚落，由验证器找出物理规律与设定上的矛盾，再让 agent 调用生成工具逐轮修正。写好的世界观会被逐条对照地图核查。":
+    "Turns a worldbuilding description into terrain, water and settlements. A verifier finds what breaks physics or the description, and an agent repairs the map round by round with generator tools. Written lore is checked against the map claim by claim.",
+  "正在检测 Claude 是否可用": "Checking whether Claude is available",
+  "描述你的世界": "Describe your world", "一句话也行，模型会把世界补全": "One sentence is enough; the model fills the world out",
+  "比如：北方冰海上的维京群岛": "e.g. Viking islands in a northern ice sea", "示例描述": "Example descriptions",
+  "生成世界": "Generate world", "随机世界": "Random world", "停止": "Stop",
+  "抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型": "Draw a random world: landform, climate, scale, ranges and settlements all come from a seed, with no model call",
+  "历史记录（最近 10 条，存在这个浏览器里）": "History (last 10, stored in this browser)", "清空历史": "Clear history",
+  "规划与修正由谁完成": "Who plans and repairs", "离线脚本策略": "Offline scripted policy",
+  "即时运行，按违规类型套规则，用来模拟 agent": "Instant; applies rules per violation type to imitate an agent",
+  "规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒":
+    "Planner, relation proposals, negotiation, repair and lore are real model calls, about 10–60 s per round; rebuilding the map locally takes about 1 s",
+  "OpenRouter API key（只存在这个浏览器里）": "OpenRouter API key (kept only in this browser)", "使用": "Use", "忘记": "Forget",
+  "key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。": "The key is never written into the page or sent anywhere except with requests to openrouter.ai.",
+  "模型档位": "Model tier", "高级设置（实验用）": "Advanced (for experiments)", "验证器给 agent 的反馈": "Verifier feedback to the agent",
+  "结构化违规报告": "Structured violation report", "只告诉通过或不通过": "Pass / fail only", "不反馈，只生成一次": "No feedback, generate once",
+  "最多迭代轮数": "Max iterations", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
+  "地图": "Map", "大图布局": "Big map", "地图占满整行，设置和检查面板移到下方": "The map takes the full row; panels move below it",
+  "保存平面图": "Save flat map", "把平面地图（含水系、聚落和标注）保存成 PNG 图片": "Save the flat map (with water, towns and marks) as a PNG",
+  "视图": "View", "3D 沙盘": "3D diorama", "平面地图": "Flat map", "游戏地图": "Game map",
+  "区域图": "Region", "聚焦城镇": "Focus town", "探索迷雾": "Fog of war", "重新渲染": "Re-render",
+  "点击传送点图标可放大该城镇，再点一次返回": "Click a waypoint to zoom into that town; click again to return",
+  "地形夸张": "Relief", "斜视": "Oblique", "俯视": "Top", "拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去": "Drag to rotate, scroll to zoom, Shift or right-drag to pan; click a town name to fly there",
+  "底图": "Base", "地图册": "Atlas", "地形浮雕": "Relief", "高程": "Elevation", "水系": "Water", "聚落": "Towns", "违规标记": "Violations", "分区": "Grid",
+  "生成的区域地图（平面）": "Generated region map (flat)", "生成的区域地图（3D 沙盘，可用方向键旋转）": "Generated region map (3D, arrow keys rotate)", "游戏风格地图": "Game-style map",
+  "正在看历史快照；编辑总是基于最新一版": "Viewing an earlier snapshot; edits always apply to the latest",
+  "把鼠标移到地图上查看格点信息。": "Hover the map to read a cell.", "迭代快照": "Iteration snapshots",
+  "验证与修正": "Verification and repair", "检查结果": "Checks", "城市详图": "City plans",
+  "每个聚落都会按地形、水系和进城道路生成规划：先划分功能片区，街道网格对齐主干道，再放置广场、教堂、医院等地标。点击地图上的城镇也能切换到这里。把鼠标移到图例上可以单独突出某一类片区。":
+    "Every settlement gets a plan from its terrain, water and approach roads: districts first, then a street lattice aligned to the main roads, then landmarks such as plazas, churches and hospitals. Click a town on the map to switch here; hover the legend to highlight one kind of district.",
+  "选择聚落": "Choose a settlement", "城市规划详图": "City plan", "功能区": "Districts", "地标": "Landmarks", "在 3D 沙盘中查看": "View in the 3D diorama",
+  "局部编辑": "Local edits", "修改地图后，只重新计算受影响的部分，并把被推翻的设定标为过期。然后可以选择改设定，或让地图服从设定。":
+    "After an edit only the affected part is recomputed, and lore it contradicts is marked stale. Then rewrite the lore, or make the map obey it.",
+  "目标区域": "Target region", "移动聚落": "Move town", "区域": "Region", "在此隆起山脊": "Raise a ridge here",
+  "时代": "Era", "中世纪": "medieval", "近现代": "modern", "未来": "future", "异星": "alien",
+  "街道形态": "Street pattern", "有机街道": "organic streets", "棋盘网格": "grid", "放射状": "radial", "环状": "ring", "等高线梯田": "terraced",
+  "城墙": "Walls", "城墙：按时代": "Walls: by era", "城墙：总是有": "Walls: always", "城墙：不建": "Walls: never", "按此风格重画城市": "Redraw towns in this style",
+  "风格档案由意图层（": "The style profile is read off the description by the intent layer (",
+  "）从描述里读出，只影响城镇怎么画，不影响任何地理约束。选时代会把街道形态、街区尺度、楼高和地标词表一起切到该时代的默认值；之后再单独改街道形态可以覆盖它。":
+    "). It only changes how towns are drawn, never a geographic constraint. Picking an era resets street pattern, block scale, building height and landmarks to that era's defaults; a street pattern chosen afterwards overrides it.",
+  "重写过期设定": "Rewrite stale lore", "让地图服从设定": "Make the map obey the lore",
+  "先生成地图和世界观，再来这里修改。": "Generate a map and its lore first, then edit here.",
+  "离线模式下的规划、修正和写作都是规则脚本，只用于展示流程；切换到 Claude 才是真正的 LLM agent。": "Offline, planning, repair and writing are rule scripts that only show the workflow; switch to Claude for the real LLM agent.",
+  "世界观与地图联动": "Lore linked to the map",
+  "设定作者只能通过地图查询工具获取地理事实，文中用实体引用指向地图对象。每条地理描述都会变成可核查的声明；把鼠标移到卡片或金色名字上，地图会标出对应位置。":
+    "The lore writer gets geographic facts only through map query tools and refers to map objects by id. Every geographic statement becomes a checkable claim; hover a card or a gold name to see it on the map.",
+  "生成世界观": "Generate lore", "点击查看城市详图": "Click to see the city plan", "切换界面语言 / Switch language": "切换界面语言 / Switch language",
+};
+function translateStatic() {
+  const swap = (orig) => { if (LANG !== "en") return orig; const t = orig.trim(); return I18N_EN[t] ? orig.replace(t, I18N_EN[t]) : orig; };
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walk.nextNode());) {
+    if (n.__zh === undefined) n.__zh = I18N_EN[n.nodeValue.trim()] ? n.nodeValue : null;
+    if (n.__zh !== null) n.nodeValue = swap(n.__zh);
+  }
+  for (const el of document.querySelectorAll("[title], [placeholder], [aria-label]")) for (const a of ["title", "placeholder", "aria-label"]) {
+    if (!el.hasAttribute(a)) continue;
+    const k = "zh_" + a.replace("-", "");
+    if (el.dataset[k] === undefined) { if (!I18N_EN[el.getAttribute(a).trim()]) continue; el.dataset[k] = el.getAttribute(a); }
+    el.setAttribute(a, swap(el.dataset[k]));
+  }
+  document.title = LANG === "en" ? I18N_EN["区域地图 Agent 演示"] : "区域地图 Agent 演示";
+  document.documentElement.lang = LANG === "en" ? "en" : "zh-CN";
+}
+const NAME_TABLES = () => ({ REGION_ZH, TYPE_ZH, REQ_ZH, REL_ZH, BIOME_ZH, RIVER_NAMES, LAKE_NAMES, DIRS8, LANDFORM_ZH, CHAR_METRICS, CHAR_LEVEL_ZH, ERA_ZH, PATTERN_ZH });
+const NAMES_EN_UI = { ERA_ZH: { medieval: "medieval", modern: "modern", future: "future", alien: "alien" },
+  PATTERN_ZH: { organic: "organic streets", grid: "grid", radial: "radial", ring: "ring", terraced: "terraced" } };
+let NAMES_ZH_SAVED = null;
+function setLang(lang) {
+  const tables = NAME_TABLES();
+  if (!NAMES_ZH_SAVED) NAMES_ZH_SAVED = Object.fromEntries(Object.entries(tables).map(([k, t]) => [k, JSON.parse(JSON.stringify(t))]));
+  const prev = LANG;
+  LANG = lang === "en" ? "en" : "zh";
+  for (const [k, t] of Object.entries(tables)) {
+    const src = LANG === "en" ? (NAMES_EN[k] || NAMES_EN_UI[k]) : NAMES_ZH_SAVED[k];
+    if (!src) continue;
+    if (Array.isArray(t)) t.splice(0, t.length, ...src); else Object.assign(t, src);
+  }
+  for (const tbl of [ZONES, LANDMARK]) for (const o of Object.values(tbl)) { if (o.zh0 === undefined) o.zh0 = o.zh; o.zh = LANG === "en" ? (o.en || o.zh0) : o.zh0; }
+  try { localStorage.setItem("region-map-agent.lang", LANG); } catch {}
+  $("#langBtn").textContent = LANG === "en" ? "中文" : "EN";
+  translateStatic();
+  if (prev === LANG) return;
+  // re-render everything the program wrote; keep an example description selected in the new language
+  const d = $("#desc").value.trim(), o = otherLangText(d); if (o) $("#desc").value = o;
+  if (S.statusMsg) setStatus(S.statusMsg, S.statusState);
+  tierLabels(); fillRegionSelects(); renderExamples(); updateScaleHint(); renderHistory();
+  $("#readout").textContent = READOUT_HINT_FN();
+  if (S.snaps.length) refreshAll();
+  if (S.view === "game") renderGameMap(true);
+}
+function renderExamples() {
+  $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
+  $("#examples").querySelectorAll("button").forEach(b => b.onclick = () => { $("#desc").value = EXAMPLES[+b.dataset.k].text; $("#desc").focus(); });
+}
+
+// ---------- history ----------
+// A world is fully determined by its WorldSpec and generator params, so a record stores those (a few KB) plus the
+// trace, lore and headline numbers, and loading re-derives the map. Records live in this browser's localStorage only.
+const HIST_KEY = "region-map-agent.history", HIST_MAX = 10;
+function readHistory() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } }
+function writeHistory(list) {
+  if (!list.length) { try { localStorage.removeItem(HIST_KEY); } catch {} return true; }
+  // a full quota drops the oldest records first, then thumbnails, rather than losing the newest run
+  for (let l = list.slice(0, HIST_MAX); l.length; l = l.slice(0, -1)) {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(l)); return true; } catch {}
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(l.map(r => ({ ...r, thumb: null })))); return true; } catch {}
+  }
+  return false;
+}
+function thumbOf(sn) {
+  try {
+    const c = document.createElement("canvas"); c.width = c.height = 104;
+    const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(baseImage(sn, "2d"), 0, 0, 104, 104);
+    return c.toDataURL("image/jpeg", 0.72);
+  } catch { return null; }
+}
+function saveRecord() {
+  const sn = last();
+  if (!S.recordId || !sn || !S.spec) return;
+  const rep = reportOf(sn);
+  const rec = {
+    id: S.recordId, t: S.recordT || Date.now(), desc: S.recordDesc || "", name: S.spec.name,
+    landform: S.spec.landform || "", scale: S.spec.scale || "region", engine: S.recordEng || "offline",
+    spec: S.spec, P: sn.W.P, lore: S.lore, trace: S.trace.map(t => ({ ...t, pending: null })),
+    traj: S.trajOverride || S.snaps.filter(x => x.kind !== "edit").map(x => reportOf(x).fails.length),
+    fails: rep.fails.length, rate: rep.rate, calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
+  };
+  const list = readHistory().filter(r => r.id !== rec.id);
+  list.unshift(rec);
+  writeHistory(list);
+  renderHistory();
+}
+function loadRecord(id) {
+  if (S.running) return;
+  const rec = readHistory().find(r => r.id === id); if (!rec) return;
+  S.ctl = new AbortController();
+  S.spec = rec.spec; S.lore = rec.lore || null; bumpLore();
+  S.trace = rec.trace || []; S.llmCalls = rec.calls || 0; S.fit = rec.fit ?? null; S.elapsed = rec.elapsed || 0; S.focus = null;
+  S.recordId = rec.id; S.recordT = rec.t; S.recordDesc = rec.desc; S.recordEng = rec.engine;
+  S.trajOverride = rec.traj || null;
+  const W = derive(rec.spec, rec.P);
+  S.snaps = []; pushSnap(W, L("历史记录", "History"), "init");
+  $("#desc").value = rec.desc || "";
+  $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+  updateScaleHint(); fillEditSelects(); syncStyleControls(); refreshAll(); renderHistory();
+  $(".map-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function renderHistory() {
+  const list = readHistory(), el = $("#histList");
+  $("#histClear").hidden = !list.length;
+  if (!list.length) { el.innerHTML = `<li class="empty">${L("还没有记录。生成一张地图后会自动保存在这里。", "Nothing yet. Each map you generate is saved here.")}</li>`; return; }
+  const when = t => new Date(t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  el.innerHTML = list.map(r => `<li class="${r.id === S.recordId ? "cur" : ""}">
+      ${r.thumb ? `<img src="${r.thumb}" alt="">` : `<span></span>`}
+      <div><div class="h-name" title="${esc(r.desc)}">${esc(r.name)}</div>
+        <div class="h-sub">${when(r.t)} · ${esc(LANDFORM_ZH[r.landform] || "")} · ${L(`${r.fails} 项违规`, `${r.fails} violations`)}${r.fit != null ? L(` · 吻合 ${r.fit}/5`, ` · fit ${r.fit}/5`) : ""}</div>
+        <div class="h-sub">${esc(r.desc)}</div></div>
+      <div class="h-btns"><button type="button" data-load="${r.id}">${L("载入", "Load")}</button><button type="button" data-del="${r.id}">${L("删除", "Delete")}</button></div>
+    </li>`).join("");
+  el.querySelectorAll("[data-load]").forEach(b => b.onclick = () => loadRecord(b.dataset.load));
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { writeHistory(readHistory().filter(r => r.id !== b.dataset.del)); if (S.recordId === b.dataset.del) S.recordId = null; renderHistory(); });
+}
+// save the flat map as a PNG: whatever view is showing, draw the 2D map (with rivers, towns and marks) and export it
+function savePng() {
+  const sn = curSnap(); if (!sn) return;
+  render2D();
+  const name = (S.spec && S.spec.name || "map").replace(/[\\/:*?"<>|]+/g, "_");
+  $("#map").toBlob(b => {
+    if (!b) return;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${name}.png`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
 }
 
 // ---------- snapshots & trace ----------
@@ -4215,7 +4508,7 @@ function pushSnap(W, label, kind) {
   refreshAll();
 }
 function reportOf(sn) {
-  if (!sn.rep || sn.repLore !== S.loreVersion) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; }
+  if (!sn.rep || sn.repLore !== S.loreVersion || sn.repLang !== LANG) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; sn.repLang = LANG; }
   return sn.rep;
 }
 S.loreVersion = 0;
@@ -4226,18 +4519,19 @@ function addTrace(item) { S.trace.push(item); renderTrace(); return item; }
 function refreshAll() { renderScrub(); renderMap(); renderChecks(); renderMetrics(); renderTrace(); renderLore(); renderCity(); updateEditButtons(); }
 
 // ---------- LLM helpers ----------
-const JSON_NOTE = `
+const LANGN = () => L("Chinese", "English");   // the language the model writes its prose in
+const JSON_NOTE_FN = () => `
 
 Format: reply with one valid JSON object and nothing else. Inside string values never use a bare ASCII double quote —
-quote words with 「」 instead.`;
+quote words with ${L("「」", "single quotes ' '")} instead.`;
 async function llmJSON(prompt, what, item, retried) {
   S.llmCalls++;
   const t = performance.now();
-  if (item) { item.pending = `${what}：等待 Claude…`; renderTrace(); }
+  if (item) { item.pending = L(`${what}：等待 Claude…`, `${what}: waiting for Claude…`); renderTrace(); }
   try {
-    const out = await S.sample.json(prompt + JSON_NOTE, {
+    const out = await S.sample.json(prompt + JSON_NOTE_FN(), {
       modelTier: $("#tier").value, signal: S.ctl.signal, cache: false,
-      onText: ({ text }) => { if (item) { item.pending = `${what}：Claude 正在输出（${text.length} 字符）`; renderTrace(); } },
+      onText: ({ text }) => { if (item) { item.pending = L(`${what}：Claude 正在输出（${text.length} 字符）`, `${what}: Claude is writing (${text.length} chars)`); renderTrace(); } },
     });
     if (item) { item.pending = null; item.llm = ((performance.now() - t) / 1000).toFixed(1) + " s"; }
     return out;
@@ -4248,14 +4542,15 @@ async function llmJSON(prompt, what, item, retried) {
       console.warn(`[llm] ${what}: invalid JSON (${e.message}), retrying once`);
       return llmJSON(prompt + `\n\nYour previous reply to this exact request was not valid JSON (${String(e.message || "").slice(0, 80)}). Answer again.`, what, item, true);
     }
-    const map = { cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" };
-    const msg = map[e && e.code] || `调用失败（${(e && e.code) || e}）`;
+    const map = L({ cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" },
+      { cancelled: "Stopped", not_granted: "Claude was not authorised; switched back to offline", rate_limited: "Too many calls or out of credit; try again later", invalid_json: "Claude's reply was not valid JSON", refused: "Claude refused this request", sampling_disabled: "This account cannot call Claude", bad_key: "The OpenRouter key is invalid or revoked; switched back to offline", network: "Cannot reach the model service; check the network" });
+    const msg = map[e && e.code] || L(`调用失败（${(e && e.code) || e}）`, `Call failed (${(e && e.code) || e})`);
     if (e && (e.code === "not_granted" || e.code === "sampling_disabled" || e.code === "bad_key")) { $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true; }
     const err = new Error(msg); err.code = e && e.code; throw err;
   }
 }
 
-const SPEC_SCHEMA = `{"name": string, "seed": integer,
+const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
  "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland",
  "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
@@ -4266,8 +4561,8 @@ const SPEC_SCHEMA = `{"name": string, "seed": integer,
                   "requires": subset of ["coast","river_mouth","on_river","lakeside","near_mountain","accessible","defensible"],
                   "proposed": subset of "requires" — the ones YOU inferred rather than read,
                   "invented": true if the description never mentions this settlement,
-                  "rationale": short Chinese sentence saying why the proposed ones follow}],
- "character": [{"metric": M, "level": "none"|"low"|"moderate"|"high"|"dominant", "why": short Chinese reason}
+                  "rationale": short ${LANGN()} sentence saying why the proposed ones follow}],
+ "character": [{"metric": M, "level": "none"|"low"|"moderate"|"high"|"dominant", "why": short ${LANGN()} reason}
                | {"metric": "islands", "min": integer, "max": integer, "why": ...}],
  "names": {"rivers": [8-12 names], "lakes": [4-8 names], "places": [30-50 hamlet names]},
  "hamlets": "none"|"sparse"|"normal"|"dense",
@@ -4303,14 +4598,14 @@ async function llmPlan(desc, item) {
 read as a real, inhabited, distinctive place — something that sparks the reader's imagination — not a generic square of land.
 
 Reply with only one JSON object of this shape:
-${SPEC_SCHEMA}
+${SPEC_SCHEMA()}
 
 You do five jobs at once. Do the first one first: everything after it must serve it.
 
 0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-5 "character"
    expectations that the description implies and a reader would check at a glance: a desert empire is dominated by
    desert and has almost no lakes; a Viking archipelago has many islands and a cold climate; a jungle kingdom is
-   mostly forest. Each needs a Chinese "why". These rank ABOVE every site constraint: when a town's requirement
+   mostly forest. Each needs a ${LANGN()} "why". These rank ABOVE every site constraint: when a town's requirement
    would break the world's character (a lakeside town in a desert with no lakes), the town gives way, not the world.
    Then choose landform, climate_zone and scale so that the character holds.
 
@@ -4324,14 +4619,14 @@ You do five jobs at once. Do the first one first: everything after it must serve
    - Bring the map to roughly 8-16 named settlements and 2-5 mountain ranges in total, adding what the setting
      implies (a capital, its ports, frontier forts, mining towns, holy sites, trading posts). Mark each added
      settlement and range "invented": true; give every invented settlement at least one requirement so it sits
-     somewhere meaningful, and a Chinese rationale. Never contradict or crowd out what the author wrote: if the author
+     somewhere meaningful, and a ${LANGN()} rationale. Never contradict or crowd out what the author wrote: if the author
      lists many places, add fewer.
    - Write names in the description's language with one consistent naming culture that fits the setting (Nordic,
      desert, East Asian, Celtic, alien...). Supply "names": river, lake and hamlet name pools in that same culture.
      Set "hamlets" to "normal" unless the setting is empty wilderness ("sparse") or crowded heartland ("dense").
 
 3. PROPOSED CONSTRAINTS — add the geographic conditions that the description *implies* for the author's own
-   settlements but does not state, and list them in "proposed" with a one-line Chinese "rationale":
+   settlements but does not state, and list them in "proposed" with a one-line ${LANGN()} "rationale":
      a prosperous trading town needs "accessible" — wealth follows traffic, and a town walled in by mountains cannot trade
      a border fortress needs "defensible" — it exists to hold ground
      a mill town belongs on a river; a fishing village belongs on the coast
@@ -4361,7 +4656,7 @@ Rules:
 
 Description:
 """${desc.slice(0, 3000)}"""`;
-  return llmJSON(prompt, "规划 WorldSpec", item);
+  return llmJSON(prompt, L("规划 WorldSpec", "planning the WorldSpec"), item);
 }
 
 // Stage 2': propose relations once the map exists, so upstream/downstream and travel times are grounded in fact.
@@ -4385,13 +4680,13 @@ Rules:
   records a real dependency rather than forcing the settlements together. Only propose it where the world implies a
   dependency: a satellite village and its market town, a fortress and the capital it guards, a mine and its smelter.
 - Propose at most 4 relations. Fewer is better. Skip anything the map does not support.
-- Each needs a one-line Chinese "rationale" that cites the fact it rests on.
+- Each needs a one-line ${LANGN()} "rationale" that cites the fact it rests on.
 
 Facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"relations":[{"type":..., "a":"S1", "b":"S3", "days":4, "rationale":"..."}]}`;
-  const out = await llmJSON(prompt, "提议地缘关系", item);
+  const out = await llmJSON(prompt, L("提议地缘关系", "proposing relations"), item);
   const ids = new Set(W.spec.settlements.map(s => s.id));
   return (Array.isArray(out.relations) ? out.relations : []).filter(r => r && ids.has(r.a) && ids.has(r.b) && r.a !== r.b)
     .slice(0, 4).map(r => ({ ...r, source: "proposed" }));
@@ -4451,14 +4746,14 @@ ${history.length ? JSON.stringify(history) : "none"}
 Tools:
 ${TOOL_DOC}
 
-Reply with only JSON: {"analysis": "one or two sentences in Chinese explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
+Reply with only JSON: {"analysis": "one or two sentences in ${LANGN()} explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
 PRIORITY: checks with code "character" describe the world as a whole and outrank every other check. Fix them first,
 usually with set_climate or set_landform. Never trade one away for a town: a round whose edits break a character check
 that was passing is rolled back automatically. If a town's requirement can only be met by breaking the world's
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
 the character expectation.
 A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
-  const out = await llmJSON(prompt, "决定修正动作", item);
+  const out = await llmJSON(prompt, L("决定修正动作", "choosing repairs"), item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
 }
 
@@ -4494,9 +4789,9 @@ Ask: would a reader of the description recognise this map? A desert empire shoul
 big lakes; a frozen archipelago should be many cold islands; a river delta needs rivers and wetland.
 
 Reply with only JSON:
-{"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short Chinese sentences, most important first"],
+{"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short ${LANGN()} sentences, most important first"],
 ${final ? `"actions": []}` : `"add_character": [character expectations the map should meet but nobody declared, same shape as above:
-   {"metric": ..., "level": ... | "min"/"max" for islands, "why": Chinese}],
+   {"metric": ..., "level": ... | "min"/"max" for islands, "why": ${LANGN()}}],
  "actions": [{"tool": "<name>", "args": {...every argument the tool lists...}}] — tool calls that fix the world as a whole,
    from: set_landform, set_climate, raise_ridge, carve_basin, set_sea_level, set_river_threshold}
 
@@ -4505,7 +4800,7 @@ ${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve
 
 Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.`}
 Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
-  const out = await llmJSON(prompt, final ? "终审：对照描述" : "审阅：对照描述", item);
+  const out = await llmJSON(prompt, final ? L("终审：对照描述", "final review against the description") : L("审阅：对照描述", "review against the description"), item);
   return {
     fits: !!out.fits, score: clamp(Math.round(+out.score || 0), 0, 5), issues: (Array.isArray(out.issues) ? out.issues : []).map(String).slice(0, 6),
     add: final ? [] : normalizeCharacter(out.add_character, "critic"),
@@ -4556,11 +4851,11 @@ Rules:
   that conflict's checks unsatisfiable instead of guessing.
 
 Reply with only JSON:
-{"analysis": "one or two sentences in Chinese saying what you traded and why",
- "relaxations": [{"target": "S3", "item": "coast", "to": "on_river", "reason": "中文一句"}],
- "declare": [{"check_id": "spec.req.S3.coast", "reason": "中文一句"}]}
+{"analysis": "one or two sentences in ${LANGN()} saying what you traded and why",
+ "relaxations": [{"target": "S3", "item": "coast", "to": "on_river", "reason": "${L("中文一句", "one sentence")}"}],
+ "declare": [{"check_id": "spec.req.S3.coast", "reason": "${L("中文一句", "one sentence")}"}]}
 Use "to": null to drop an item outright. Leave either list empty when you have nothing to put in it.`;
-  const out = await llmJSON(prompt, "冲突让步决策", item);
+  const out = await llmJSON(prompt, L("冲突让步决策", "negotiating the conflict"), item);
   const ids = new Set(briefs.flatMap(b => b.checks)), targets = new Set(briefs.map(b => b.target));
   const actions = [];
   for (const r of Array.isArray(out.relaxations) ? out.relaxations : []) {
@@ -4587,7 +4882,7 @@ const CLAIM_DOC = `Claim objects (use entity ids):
 {"type":"upstream_of","a":"S2","b":"S1"}`;
 
 async function llmLore(facts, item) {
-  const prompt = `Write one short worldbuilding entry per settlement for a tabletop campaign region called "${facts.region}". Tone: quiet, uncanny, 1920s or low-fantasy depending on the names. Write in Chinese, 50-110 characters per entry.
+  const prompt = `Write one short worldbuilding entry per settlement for a tabletop campaign region called "${facts.region}". Tone: quiet, uncanny, 1920s or low-fantasy depending on the names. ${L("Write in Chinese, 50-110 characters per entry.", "Write in English, 30-70 words per entry.")}
 Use ONLY these map facts for geography. Refer to entities by writing [[ID]] in the text (e.g. [[S1]], [[R1]], [[M1]]) instead of their names.
 Every geographic statement in the text must also appear as a machine-checkable claim. Non-geographic flavour needs no claim.
 
@@ -4597,7 +4892,7 @@ Map facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"entries":[{"subject":"S1","title":"...","text":"...","claims":[...]}]}`;
-  const out = await llmJSON(prompt, "起草世界观", item);
+  const out = await llmJSON(prompt, L("起草世界观", "drafting lore"), item);
   return Array.isArray(out.entries) ? out.entries : Array.isArray(out) ? out : [];
 }
 async function llmReviseLore(entries, failures, facts, item, why) {
@@ -4615,7 +4910,7 @@ Current map facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"entries":[{"subject":"S1","title":"...","text":"...","claims":[...]}]}`;
-  const out = await llmJSON(prompt, "修订世界观", item);
+  const out = await llmJSON(prompt, L("修订世界观", "revising lore"), item);
   return Array.isArray(out.entries) ? out.entries : [];
 }
 function normalizeEntries(list, W, idOffset) {
@@ -4633,18 +4928,18 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   let rep = verify(W, withLore ? activeLore() : null);
   const negotiated = new Set();          // one negotiation per distinct conflict core, never the same core twice
   for (let it = 1; it <= maxIter; it++) {
-    if (!rep.fails.length) { addTrace({ kind: "done", title: "全部检查通过", body: "验证器没有发现剩余违规，循环结束。" }); break; }
+    if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("验证器没有发现剩余违规，循环结束。", "The verifier finds nothing left; the loop ends.") }); break; }
     // Conflict resolution runs first: editing terrain towards a goal the solver has proved unreachable is wasted work.
     // It does not consume an iteration — after yielding, the same round still gets its repair step.
     if (fb === "structured") {
       const briefs = conflictBriefs(W, rep).filter(b => !negotiated.has(b.key));
       if (briefs.length) {
         briefs.forEach(b => negotiated.add(b.key));
-        const ni = addTrace({ kind: "conflict", title: `${title} 第 ${it} 轮 · 冲突消解`, before: rep.fails.length,
-          body: briefs.map(b => `${b.name}：${b.reason}`).join("；") + "。" });
+        const ni = addTrace({ kind: "conflict", title: L(`${title} 第 ${it} 轮 · 冲突消解`, `${title} round ${it} · conflicts`), before: rep.fails.length,
+          body: briefs.map(b => `${b.name}${L("：", ": ")}${b.reason}`).join(L("；", "; ")) + L("。", ".") });
         let dec = { analysis: "", actions: [] };
         try { dec = eng === "claude" ? await llmNegotiate(W, briefs, desc, ni) : scriptedNegotiate(W, briefs); }
-        catch (e) { ni.body += ` 让步决策失败：${e.message || e}`; }
+        catch (e) { ni.body += L(` 让步决策失败：${e.message || e}`, ` Negotiation failed: ${e.message || e}`); }
         if (dec.actions.length) {
           const r = applyActions(W, dec.actions);
           hist.push({ actions: dec.actions, results: r.results });
@@ -4652,13 +4947,13 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
           if (dec.analysis) ni.body = dec.analysis;
           ni.after = rep.fails.length;
           ni.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
-          pushSnap(W, `${title}${it}让步`, "iter");
+          pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
           await frame();
-          if (!rep.fails.length) { addTrace({ kind: "done", title: "全部检查通过", body: "让步之后没有剩余违规，循环结束。" }); break; }
-        } else { ni.after = rep.fails.length; ni.body += "（agent 选择不让步）"; renderTrace(); }
+          if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+        } else { ni.after = rep.fails.length; ni.body += L("（agent 选择不让步）", " (the agent chose not to yield)"); renderTrace(); }
       }
     }
-    const item = addTrace({ kind: "iter", title: `${title} 第 ${it} 轮`, before: rep.fails.length });
+    const item = addTrace({ kind: "iter", title: L(`${title} 第 ${it} 轮`, `${title} round ${it}`), before: rep.fails.length });
     let pol;
     try {
       if (eng === "claude") pol = await llmRepair(W, rep, hist, fb, item);
@@ -4666,23 +4961,23 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     } catch (e) {
       if (e && e.code === "cancelled") throw e;
       // a failed round ends the loop but keeps the map built so far; the run still gets its final review
-      item.after = rep.fails.length; item.body = `本轮修正决策失败（${e.message || e}），保留当前地图并结束修正循环。`; renderTrace();
+      item.after = rep.fails.length; item.body = L(`本轮修正决策失败（${e.message || e}），保留当前地图并结束修正循环。`, `This round's repair decision failed (${e.message || e}); keeping the current map and ending the loop.`); renderTrace();
       break;
     }
     item.body = pol.analysis;
-    if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + "（agent 没有给出新动作，循环结束）"; renderTrace(); break; }
+    if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + L("（agent 没有给出新动作，循环结束）", "(no new actions from the agent; the loop ends)"); renderTrace(); break; }
     const r = applyActions(W, pol.actions);
     // character outranks site constraints: a round that breaks a passing character check is undone
     const rep2 = verify(r.W, withLore ? activeLore() : null);
     const broken = rep.checks.filter(c => c.code === "character" && c.status === "pass").filter(c => rep2.fails.some(f => f.id === c.id));
     if (broken.length) {
-      const why = `本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`;
+      const why = L(`本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`, `this round would break the world's character (${broken.map(c => c.label.replace("Character: ", "")).join(", ")}), rolled back`);
       r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: why });
       hist.push({ actions: pol.actions, results: r.results });
       item.after = rep.fails.length; item.body += (item.body ? " " : "") + `（${why}）`;
       item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
       renderTrace(); await frame();
-      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: "达到迭代上限", body: `仍有 ${rep.fails.length} 项违规。` });
+      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
       continue;
     }
     hist.push({ actions: pol.actions, results: r.results });
@@ -4690,9 +4985,9 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     rep = rep2;
     item.after = rep.fails.length;
     item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
-    pushSnap(W, `${title}${it}`, "iter");
+    pushSnap(W, L(`${title}${it}`, `${title} ${it}`), "iter");
     await frame();
-    if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: "达到迭代上限", body: `仍有 ${rep.fails.length} 项违规。` });
+    if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
   }
   return W;
 }
@@ -4704,63 +4999,69 @@ async function runAgent(opts = {}) {
   // that carries a hand-written spec can be built. Say so instead of silently drawing something unrelated.
   const desc0 = $("#desc").value.trim();
   const isRandom = !!S.randomSpec && desc0 === S.randomDesc.trim();
-  const preset = PRESETS.find(p => p.text.trim() === desc0) || null;
-  if (!desc0) { $("#busy").textContent = "先写一句描述，或点「随机世界」。"; return; }
+  const preset = PRESETS.find(p => p.text.trim() === desc0 || p.text_en.trim() === desc0) || null;
+  if (!desc0) { $("#busy").textContent = L("先写一句描述，或点「随机世界」。", "Write a description first, or press Random world."); return; }
   if (eng !== "claude" && !isRandom && !preset) {
     $("#busy").textContent = $("#engClaude").disabled
-      ? "离线模式读不懂自由描述。填入 OpenRouter key 解锁模型，或点「随机世界」。"
-      : "离线模式读不懂自由描述：把「规划与修正由谁完成」切到 Claude，或点「随机世界」。";
+      ? L("离线模式读不懂自由描述。填入 OpenRouter key 解锁模型，或点「随机世界」。", "The offline engine cannot read free text. Paste an OpenRouter key to unlock the model, or press Random world.")
+      : L("离线模式读不懂自由描述：把「规划与修正由谁完成」切到 Claude，或点「随机世界」。", "The offline engine cannot read free text: switch the engine to Claude, or press Random world.");
     return;
   }
-  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; S.fit = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = "先生成世界观，再来这里修改。"; S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
-  setBusy(true, "生成中");
+  S.recordId = opts.boot ? null : Date.now().toString(36); S.recordT = Date.now(); S.recordDesc = desc0; S.recordEng = eng === "claude" ? $("#tier").value : "offline";
+  S.trajOverride = null;
+  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; S.fit = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = L("先生成世界观，再来这里修改。", "Generate lore first, then edit here."); S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
+  setBusy(true, L("生成中", "Generating"));
   try {
     const desc = desc0;
     let raw;
     if (isRandom) {
       raw = S.randomSpec;
-      addTrace({ kind: "plan", title: "规划器（随机世界）", body: "使用随机抽取的 WorldSpec：地形模板、气候、尺度、山脉和聚落都由种子决定，规划阶段不调用模型。" });
+      addTrace({ kind: "plan", title: L("规划器（随机世界）", "Planner (random world)"), body: L("使用随机抽取的 WorldSpec：地形模板、气候、尺度、山脉和聚落都由种子决定，规划阶段不调用模型。", "Using a randomly drawn WorldSpec: landform, climate, scale, ranges and settlements all come from a seed; no model call.") });
     } else if (eng === "claude") {
-      const item = addTrace({ kind: "plan", title: "规划器", body: "把描述转成 WorldSpec（结构化规格）。" });
+      const item = addTrace({ kind: "plan", title: L("规划器", "Planner"), body: L("把描述转成 WorldSpec（结构化规格）。", "Turning the description into a WorldSpec.") });
       raw = resolveRelationNames(await llmPlan(desc, item));
     } else {
       raw = preset.spec;
-      addTrace({ kind: "plan", title: "规划器（离线）", body: "这段描述是自带 WorldSpec 的示例，离线模式直接使用写好的规格，不调用模型。" });
+      if (LANG === "en" && preset.names_en) {      // the English example names its places in English
+        const en = n => preset.names_en[n] || n;
+        raw = { ...raw, name: en(raw.name), mountains: raw.mountains.map(m => ({ ...m, name: en(m.name) })), settlements: raw.settlements.map(t => ({ ...t, name: en(t.name) })) };
+      }
+      addTrace({ kind: "plan", title: L("规划器（离线）", "Planner (offline)"), body: L("这段描述是自带 WorldSpec 的示例，离线模式直接使用写好的规格，不调用模型。", "This description is an example with a hand-written WorldSpec; the offline engine uses it directly, with no model call.") });
     }
     S.spec = normalizeSpec(raw);
     $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-    { const km = (SCALES[S.spec.scale] || SCALES.region).km * N;
-      $("#scaleHint").textContent = `图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`; }
+    updateScaleHint();
     fillEditSelects(); syncStyleControls();
     await frame();
     let W = derive(S.spec, initParams(S.spec));
     if (eng === "claude") {
-      const it2 = addTrace({ kind: "plan", title: "地缘关系提议", body: "地图已生成，让 agent 根据真实水系、路网和实测路程提议关系约束。" });
+      const it2 = addTrace({ kind: "plan", title: L("地缘关系提议", "Relation proposals"), body: L("地图已生成，让 agent 根据真实水系、路网和实测路程提议关系约束。", "The map exists; the agent proposes relations from the real rivers, roads and measured travel times.") });
       try {
         const rels = await llmRelations(W, it2);
         if (rels.length) {
           S.spec = normalizeSpec({ ...S.spec, settlements: S.spec.settlements.map(s => ({ ...s })), relations: rels });
           W = derive(S.spec, W.P);
-          it2.body = rels.map(r => `${nameOf(W, r.a)} ${REL_ZH[r.type]}${r.type === "within_days_of" ? " " + r.days + " 天" : ""} ${nameOf(W, r.b)}：${r.rationale || ""}`).join("；");
+          it2.body = rels.map(r => L(`${nameOf(W, r.a)} ${REL_ZH[r.type]}${r.type === "within_days_of" ? " " + r.days + " 天" : ""} ${nameOf(W, r.b)}：${r.rationale || ""}`,
+            `${nameOf(W, r.a)} ${r.type === "within_days_of" ? `within ${r.days} days of` : "downstream of"} ${nameOf(W, r.b)}: ${r.rationale || ""}`)).join(L("；", "; "));
           $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-        } else it2.body = "agent 认为这张图不支持任何关系约束。";
-      } catch (e) { it2.body = "关系提议失败：" + (e.message || e); }
+        } else it2.body = L("agent 认为这张图不支持任何关系约束。", "The agent found no relation this map supports.");
+      } catch (e) { it2.body = L("关系提议失败：", "Relation proposals failed: ") + (e.message || e); }
     }
     const rep0 = verify(W, null);
-    addTrace({ kind: "build", title: "生成器", body: `按默认参数生成：噪声地形、噪声湿度、不填洼的 D8 水文。验证器发现 ${rep0.fails.length} 项违规。` });
-    pushSnap(W, "初始", "init");
+    addTrace({ kind: "build", title: L("生成器", "Generator"), body: L(`按默认参数生成：噪声地形、噪声湿度、不填洼的 D8 水文。验证器发现 ${rep0.fails.length} 项违规。`, `Built with default parameters: noise terrain, noise moisture, unfilled D8 hydrology. The verifier finds ${rep0.fails.length} violations.`) });
+    pushSnap(W, L("初始", "Initial"), "init");
     if (eng === "claude" && !isRandom && fb !== "none") {
-      const ci = addTrace({ kind: "plan", title: "地图审阅", body: "把整张图的统计和原始描述对照，检查世界的整体特征。" });
+      const ci = addTrace({ kind: "plan", title: L("地图审阅", "Map review"), body: L("把整张图的统计和原始描述对照，检查世界的整体特征。", "Comparing whole-map statistics with the description to check the world's character.") });
       try {
         const cr = await llmCritique(W, desc, "pre", ci);
-        const notes = [`吻合度 ${cr.score}/5`].concat(cr.issues);
+        const notes = [L(`吻合度 ${cr.score}/5`, `fit ${cr.score}/5`)].concat(cr.issues);
         if (cr.add.length) {
           const have = new Set((S.spec.character || []).map(c => c.metric));
           const add = cr.add.filter(c => !have.has(c.metric));
           if (add.length) {
             S.spec = normalizeSpec({ ...S.spec, character: [...(S.spec.character || []), ...add] });
             W = derive(S.spec, W.P);
-            notes.push("补充整体特征：" + add.map(charLabel).join("、"));
+            notes.push(L("补充整体特征：", "added character: ") + add.map(charLabel).join(L("、", ", ")));
             $("#specView").textContent = JSON.stringify(S.spec, null, 2);
           }
         }
@@ -4768,24 +5069,24 @@ async function runAgent(opts = {}) {
           const r = applyActions(W, cr.actions); W = r.W;
           ci.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
         }
-        ci.body = notes.join("；") + "。";
-        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, "审阅调整", "iter"); }
+        ci.body = notes.join(L("；", "; ")) + L("。", ".");
+        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
         renderTrace();
-      } catch (e) { ci.body = "审阅失败：" + (e.message || e); }
+      } catch (e) { ci.body = L("审阅失败：", "Review failed: ") + (e.message || e); }
     }
-    if (fb === "none") addTrace({ kind: "done", title: "无反馈条件", body: "只生成一次，不进入修正循环。" });
-    else W = await repairLoop(W, { fb, maxIter, withLore: false, eng, title: "修正", desc });
+    if (fb === "none") addTrace({ kind: "done", title: L("无反馈条件", "No-feedback condition"), body: L("只生成一次，不进入修正循环。", "Generate once, no repair loop.") });
+    else W = await repairLoop(W, { fb, maxIter, withLore: false, eng, title: L("修正", "Repair"), desc });
     if (eng === "claude" && !isRandom && fb !== "none") {
-      const fi = addTrace({ kind: "plan", title: "终审", body: "修正结束后再把地图和描述对照一次，只评分不改动。" });
+      const fi = addTrace({ kind: "plan", title: L("终审", "Final review"), body: L("修正结束后再把地图和描述对照一次，只评分不改动。", "After repair, compare the map with the description once more; score only, no changes.") });
       try {
         const cr = await llmCritique(W, desc, "final", fi);
         S.fit = cr.score;
-        fi.body = `吻合度 ${cr.score}/5${cr.fits ? "，符合描述" : "，与描述仍有出入"}。` + (cr.issues.length ? cr.issues.join("；") + "。" : "");
+        fi.body = L(`吻合度 ${cr.score}/5${cr.fits ? "，符合描述" : "，与描述仍有出入"}。`, `Fit ${cr.score}/5${cr.fits ? ", matches the description" : ", still differs from the description"}. `) + (cr.issues.length ? cr.issues.join(L("；", "; ")) + L("。", ".") : "");
         renderTrace(); renderMetrics();
-      } catch (e) { fi.body = "终审失败：" + (e.message || e); }
+      } catch (e) { fi.body = L("终审失败：", "Final review failed: ") + (e.message || e); }
     }
   } catch (e) {
-    addTrace({ kind: "error", title: "中断", body: e.message || String(e) });
+    addTrace({ kind: "error", title: L("中断", "Interrupted"), body: e.message || String(e) });
   } finally {
     S.elapsed = (performance.now() - S.t0) / 1000;
     setBusy(false); refreshAll();
@@ -4806,7 +5107,7 @@ async function genLore() {
   const sn = last(); if (!sn || S.running) return;
   const eng = engine();
   S.ctl = new AbortController();
-  setBusy(true, "写设定中");
+  setBusy(true, L("写设定中", "Writing lore"));
   const log = [];
   const W = sn.W;
   try {
@@ -4814,36 +5115,36 @@ async function genLore() {
     if (eng === "claude") {
       const facts = mapFacts(W);
       const item = { kind: "lore" }; S.loreItem = item;
-      log.push("通过地图查询工具取得聚落、河流、山脉和两两路程等事实，交给 Claude 起草。");
+      log.push(L("通过地图查询工具取得聚落、河流、山脉和两两路程等事实，交给 Claude 起草。", "Map query tools gather settlements, rivers, ranges and pairwise travel times; Claude drafts from them."));
       renderLoreLog(log, item);
       let entries = normalizeEntries(await llmLore(facts, item), W, 0);
       S.lore = entries; S.lore.forEach(e => e.claims.forEach(c => c.status = null)); claimStatuses(W);
       const bad = entries.filter(e => e.claims.some(c => c.status !== "ok"));
       const nClaims = entries.reduce((a, e) => a + e.claims.length, 0);
-      log.push(`起草完成：${entries.length} 条设定，${nClaims} 条地理声明，其中 ${countBad()} 条与地图不符。`);
+      log.push(L(`起草完成：${entries.length} 条设定，${nClaims} 条地理声明，其中 ${countBad()} 条与地图不符。`, `Draft done: ${entries.length} entries, ${nClaims} geographic claims, ${countBad()} of them contradict the map.`));
       renderLoreLog(log, item); renderLore();
       if (bad.length) {
         const failures = bad.flatMap(e => e.claims.filter(c => c.status !== "ok").map(c => ({ entry: e.subject, claim: c, map_says: c.result.measured })));
         const fixed = normalizeEntries(await llmReviseLore(bad.map(({ subject, title, text, claims }) => ({ subject, title, text, claims })), failures, facts, item, "contradict the map"), W, 0);
         mergeEntries(fixed); S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-        log.push(`修订 ${fixed.length} 条后，还剩 ${countBad()} 条声明不符。`);
+        log.push(L(`修订 ${fixed.length} 条后，还剩 ${countBad()} 条声明不符。`, `After revising ${fixed.length} entries, ${countBad()} claims still contradict the map.`));
       }
     } else {
       S.lore = scriptedLore(W, "draft");
       S.lore.forEach(e => e.claims.forEach(c => c.status = null)); claimStatuses(W);
-      log.push("起草（离线模板）：路程按两地直线距离估算，没有调用路径工具。");
-      log.push(`核查：${S.lore.reduce((a, e) => a + e.claims.length, 0)} 条地理声明，${countBad()} 条与地图不符。`);
+      log.push(L("起草（离线模板）：路程按两地直线距离估算，没有调用路径工具。", "Draft (offline template): travel times guessed from straight-line distance, without the route tool."));
+      log.push(L(`核查：${S.lore.reduce((a, e) => a + e.claims.length, 0)} 条地理声明，${countBad()} 条与地图不符。`, `Check: ${S.lore.reduce((a, e) => a + e.claims.length, 0)} geographic claims, ${countBad()} contradict the map.`));
       renderLore(); renderLoreLog(log); await frame();
       const bad = S.lore.filter(e => e.claims.some(c => c.status !== "ok"));
       if (bad.length) {
         for (const e of bad) { const k = S.lore.indexOf(e); const s = S.spec.settlements.find(q => q.id === e.subject); S.lore[k] = scriptedLoreEntry(W, s, k, "final"); }
         S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-        log.push(`修订：对不符的 ${bad.length} 条设定改用路径工具的实测路程重写，剩余不符 ${countBad()} 条。`);
-      } else log.push("没有需要修订的声明。");
+        log.push(L(`修订：对不符的 ${bad.length} 条设定改用路径工具的实测路程重写，剩余不符 ${countBad()} 条。`, `Revision: rewrote ${bad.length} entries with route-tool travel times; ${countBad()} still contradict.`));
+      } else log.push(L("没有需要修订的声明。", "Nothing needs revising."));
     }
-    log.push("这些声明现在也是地图的约束：之后编辑地图时，被影响的设定会被标记为过期。");
+    log.push(L("这些声明现在也是地图的约束：之后编辑地图时，被影响的设定会被标记为过期。", "These claims now constrain the map too: later edits mark affected entries as stale."));
   } catch (e) {
-    log.push("中断：" + (e.message || e));
+    log.push(L("中断：", "Interrupted: ") + (e.message || e));
   } finally {
     bumpLore(); renderLoreLog(log); setBusy(false); refreshAll();
   }
@@ -4862,35 +5163,36 @@ function renderLoreLog(log, item) {
 async function rewriteStale() {
   const sn = last(); if (!sn || !S.lore || S.running) return;
   const W = sn.W; const bad = S.lore.filter(e => e.claims.some(c => c.status !== "ok"));
-  if (!bad.length) { $("#editResult").textContent = "没有过期或不符的设定。"; return; }
-  S.ctl = new AbortController(); setBusy(true, "重写设定中");
+  if (!bad.length) { $("#editResult").textContent = L("没有过期或不符的设定。", "No stale or contradicting entries."); return; }
+  S.ctl = new AbortController(); setBusy(true, L("重写设定中", "Rewriting lore"));
   try {
     if (engine() === "claude") {
       const facts = mapFacts(W);
       const failures = bad.flatMap(e => e.claims.filter(c => c.status !== "ok").map(c => ({ entry: e.subject, claim: c, map_says: c.result.measured })));
       const item = {}; S.loreItem = null;
-      $("#editResult").textContent = "Claude 正在重写过期设定…";
+      $("#editResult").textContent = L("Claude 正在重写过期设定…", "Claude is rewriting stale entries…");
       const fixed = normalizeEntries(await llmReviseLore(bad.map(({ subject, title, text, claims }) => ({ subject, title, text, claims })), failures, facts, item, "became outdated after the map was edited"), W, 0);
       mergeEntries(fixed);
     } else {
       for (const e of bad) { const k = S.lore.indexOf(e); const s = S.spec.settlements.find(q => q.id === e.subject); S.lore[k] = scriptedLoreEntry(W, s, k, "final"); }
     }
     S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-    $("#editResult").textContent = `已重写 ${bad.length} 条设定，剩余不符 ${countBad()} 条。地图没有改动。`;
-    addTrace({ kind: "lore", title: "设定服从地图", body: `重写了 ${bad.length} 条过期设定。` });
-  } catch (e) { $("#editResult").textContent = "中断：" + (e.message || e); }
+    $("#editResult").textContent = L(`已重写 ${bad.length} 条设定，剩余不符 ${countBad()} 条。地图没有改动。`, `Rewrote ${bad.length} entries; ${countBad()} still contradict. The map is unchanged.`);
+    addTrace({ kind: "lore", title: L("设定服从地图", "Lore follows the map"), body: L(`重写了 ${bad.length} 条过期设定。`, `Rewrote ${bad.length} stale entries.`) });
+  } catch (e) { $("#editResult").textContent = L("中断：", "Interrupted: ") + (e.message || e); }
   finally { bumpLore(); setBusy(false); refreshAll(); }
 }
 async function obeyLore() {
   const sn = last(); if (!sn || !S.lore || S.running) return;
-  S.ctl = new AbortController(); setBusy(true, "修正地图中");
+  S.ctl = new AbortController(); setBusy(true, L("修正地图中", "Repairing the map"));
   try {
     const before = countBad();
-    const W = await repairLoop(sn.W, { fb: "structured", maxIter: 4, withLore: true, eng: engine(), title: "服从设定", desc: $("#desc").value.trim() });
+    const W = await repairLoop(sn.W, { fb: "structured", maxIter: 4, withLore: true, eng: engine(), title: L("服从设定", "Obey lore"), desc: $("#desc").value.trim() });
     claimStatuses(W);
     const left = countBad();
-    $("#editResult").textContent = `地图修正后，不符的设定从 ${before} 条变为 ${left} 条。${left ? "剩下的（路程、方位、地貌等）无法靠移动聚落解决，可以改用“重写过期设定”。" : ""}`;
-  } catch (e) { $("#editResult").textContent = "中断：" + (e.message || e); }
+    $("#editResult").textContent = L(`地图修正后，不符的设定从 ${before} 条变为 ${left} 条。${left ? "剩下的（路程、方位、地貌等）无法靠移动聚落解决，可以改用“重写过期设定”。" : ""}`,
+      `After repair, contradicting entries went from ${before} to ${left}.${left ? " The rest (travel times, directions, terrain) cannot be fixed by moving towns; try Rewrite stale lore." : ""}`);
+  } catch (e) { $("#editResult").textContent = L("中断：", "Interrupted: ") + (e.message || e); }
   finally { bumpLore(); setBusy(false); refreshAll(); }
 }
 
@@ -4918,9 +5220,10 @@ function afterEdit(W0, r, label, what) {
   const staleAfter = (S.lore || []).reduce((a, e) => a + e.claims.filter(c => c.status === "stale").length, 0);
   pushSnap(W, label, "edit");
   const rep = reportOf(last());
-  const msg = `${r.results.map(x => x.msg).join("；")}。地形未改动的格子 ${(same / NN * 100).toFixed(1)}%，河道变化 ${riverDiff} 格；${S.lore ? `新增过期声明 ${Math.max(0, staleAfter - staleBefore)} 条；` : ""}当前违规 ${rep.fails.length} 项。`;
+  const msg = L(`${r.results.map(x => x.msg).join("；")}。地形未改动的格子 ${(same / NN * 100).toFixed(1)}%，河道变化 ${riverDiff} 格；${S.lore ? `新增过期声明 ${Math.max(0, staleAfter - staleBefore)} 条；` : ""}当前违规 ${rep.fails.length} 项。`,
+    `${r.results.map(x => x.msg).join("; ")}. ${(same / NN * 100).toFixed(1)}% of cells unchanged, ${riverDiff} river cells changed; ${S.lore ? `${Math.max(0, staleAfter - staleBefore)} claims went stale; ` : ""}${rep.fails.length} violations now.`);
   $("#editResult").textContent = msg;
-  addTrace({ kind: "edit", title: "用户编辑", body: `${what}。${msg}` });
+  addTrace({ kind: "edit", title: L("用户编辑", "User edit"), body: `${what}${L("。", ". ")}${msg}` });
 }
 // ---------- city style: re-plan the settlements under a different style profile ----------
 function syncStyleControls() {
@@ -4944,22 +5247,23 @@ function restyle() {
   S.snapGen = (S.snapGen || 0) + 1;              // part of the 3D and game-map cache keys, so both rebuild their cities
   S.city = null;
   $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-  const what = `${ERA_ZH[st.era]}·${PATTERN_ZH[st.street_pattern]}·街区 ${st.block_scale}×·楼高 ${st.building_height}×·城墙${{ auto: "按时代", always: "总是有", never: "不建" }[st.walls]}${newEra ? "（尺度与地标词表改用该时代的默认值）" : ""}`;
-  $("#editResult").textContent = `城市风格改为「${what}」，正在重新规划聚落…（地形、水系和所有地理约束都没有改动）`;
-  addTrace({ kind: "edit", title: "城市风格", body: `改为 ${what}。只重画城镇，验证器的检查结果不变。` });
+  const what = L(`${ERA_ZH[st.era]}·${PATTERN_ZH[st.street_pattern]}·街区 ${st.block_scale}×·楼高 ${st.building_height}×·城墙${{ auto: "按时代", always: "总是有", never: "不建" }[st.walls]}${newEra ? "（尺度与地标词表改用该时代的默认值）" : ""}`,
+    `${ERA_ZH[st.era]} · ${PATTERN_ZH[st.street_pattern]} · blocks ${st.block_scale}× · height ${st.building_height}× · walls ${{ auto: "by era", always: "always", never: "never" }[st.walls]}${newEra ? " (scale and landmarks reset to the era's defaults)" : ""}`);
+  $("#editResult").textContent = L(`城市风格改为「${what}」，正在重新规划聚落…（地形、水系和所有地理约束都没有改动）`, `City style set to "${what}"; re-planning towns… (terrain, water and every geographic constraint are unchanged)`);
+  addTrace({ kind: "edit", title: L("城市风格", "City style"), body: L(`改为 ${what}。只重画城镇，验证器的检查结果不变。`, `Now ${what}. Only towns are redrawn; the verifier's results do not change.`) });
   refreshAll();
 }
 function editMove() {
   const sn = last(); if (!sn || S.running) return;
   const id = $("#editS").value, reg = $("#editR").value;
   const r = applyActions(sn.W, [{ tool: "move_settlement", args: { id, targets: ["region:" + reg] } }]);
-  afterEdit(sn.W, r, "编辑", `把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`);
+  afterEdit(sn.W, r, L("编辑", "Edit"), L(`把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`, `Moved ${nameOf(sn.W, id)} to ${RG(reg)}`));
 }
 function editRidge() {
   const sn = last(); if (!sn || S.running) return;
   const reg = $("#ridgeR").value;
   const r = applyActions(sn.W, [{ tool: "raise_ridge", args: { region: reg, amount: 0.15 } }]);
-  afterEdit(sn.W, r, "编辑", `在${REGION_ZH[reg]}部隆起山脊`);
+  afterEdit(sn.W, r, L("编辑", "Edit"), L(`在${REGION_ZH[reg]}部隆起山脊`, `Raised a ridge in ${RG(reg)}`));
 }
 
 // ---------- rendering: side panels ----------
@@ -4972,16 +5276,17 @@ function renderScrub() {
 function renderMetrics() {
   const el = $("#metrics");
   if (!S.snaps.length) { el.innerHTML = ""; return; }
-  const traj = S.snaps.filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length);
+  const traj = S.trajOverride ? S.trajOverride.concat(S.snaps.slice(1).filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length))
+    : S.snaps.filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length);
   const rep = reportOf(last());
   const declared = rep.checks.filter(c => c.status === "declared").length;
   el.innerHTML = `
-    <div><dt>违规数变化</dt><dd>${traj.join(" → ")}</dd></div>
-    <div><dt>检查通过率</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
-    <div><dt>声明无法满足</dt><dd>${declared}</dd></div>
-    <div><dt>Claude 调用</dt><dd>${S.llmCalls} 次</dd></div>
-    ${S.fit != null ? `<div><dt>描述吻合（终审）</dt><dd>${S.fit}/5</dd></div>` : ""}
-    <div><dt>用时</dt><dd>${S.elapsed ? S.elapsed.toFixed(1) + " s" : "…"}</dd></div>`;
+    <div><dt>${L("违规数变化", "Violations")}</dt><dd>${traj.join(" → ")}</dd></div>
+    <div><dt>${L("检查通过率", "Checks passed")}</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
+    <div><dt>${L("声明无法满足", "Declared unsatisfiable")}</dt><dd>${declared}</dd></div>
+    <div><dt>${L("Claude 调用", "Claude calls")}</dt><dd>${S.llmCalls}${L(" 次", "")}</dd></div>
+    ${S.fit != null ? `<div><dt>${L("描述吻合（终审）", "Fit to description")}</dt><dd>${S.fit}/5</dd></div>` : ""}
+    <div><dt>${L("用时", "Time")}</dt><dd>${S.elapsed ? S.elapsed.toFixed(1) + " s" : "…"}</dd></div>`;
 }
 function renderTrace() {
   const el = $("#trace");
@@ -5006,10 +5311,11 @@ function renderChecks() {
       <span class="ck-n">${n ?? ""}</span><span class="ck-cat">${esc(c.cat)}</span>
       <span class="ck-body"><span class="ck-label">${esc(c.label)}</span><span class="ck-meas">${esc(c.measured)}</span></span></li>`;
   el.innerHTML = `
-    <p class="ck-sum">${sn.label}：${rep.checks.length} 项检查，<b class="f">${fails.length} 项违规</b>${declared.length ? `，${declared.length} 项已声明无法满足` : ""}${traded.length ? `，${traded.length} 项已让步` : ""}</p>
+    <p class="ck-sum">${L(`${sn.label}：${rep.checks.length} 项检查，<b class="f">${fails.length} 项违规</b>${declared.length ? `，${declared.length} 项已声明无法满足` : ""}${traded.length ? `，${traded.length} 项已让步` : ""}`,
+      `${sn.label}: ${rep.checks.length} checks, <b class="f">${fails.length} violations</b>${declared.length ? `, ${declared.length} declared unsatisfiable` : ""}${traded.length ? `, ${traded.length} traded` : ""}`)}</p>
     <ol class="ck-list">${fails.map((c, k) => item(c, k + 1)).join("")}${declared.map(c => item(c, "×")).join("")}</ol>
-    ${traded.length ? `<details open><summary>${traded.length} 项让步（约束被换成更弱的，或被放弃）</summary><ol class="ck-list">${traded.map(c => item(c, "~")).join("")}</ol></details>` : ""}
-    <details><summary>${pass.length} 项通过</summary><ol class="ck-list">${pass.map(c => item(c, "")).join("")}</ol></details>`;
+    ${traded.length ? `<details open><summary>${L(`${traded.length} 项让步（约束被换成更弱的，或被放弃）`, `${traded.length} traded (swapped for a weaker constraint, or dropped)`)}</summary><ol class="ck-list">${traded.map(c => item(c, "~")).join("")}</ol></details>` : ""}
+    <details><summary>${L(`${pass.length} 项通过`, `${pass.length} passed`)}</summary><ol class="ck-list">${pass.map(c => item(c, "")).join("")}</ol></details>`;
   el.querySelectorAll(".ck").forEach(li => {
     const f = () => { S.focus = S.focus === li.dataset.id ? null : li.dataset.id; renderChecks(); renderMap(); };
     li.onclick = f; li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); f(); } };
@@ -5017,7 +5323,7 @@ function renderChecks() {
 }
 function renderLore() {
   const el = $("#lore");
-  if (!S.lore) { el.innerHTML = `<p class="empty">生成并修正地图后，点“生成世界观”。每条设定里的地理描述都会被逐条对照地图核查。</p>`; return; }
+  if (!S.lore) { el.innerHTML = `<p class="empty">${L("生成并修正地图后，点“生成世界观”。每条设定里的地理描述都会被逐条对照地图核查。", "After the map is built, press Generate lore. Every geographic statement in it is checked against the map.")}</p>`; return; }
   const W = last().W;
   el.innerHTML = S.lore.map(e => `
     <article class="card" data-subject="${esc(e.subject)}">
@@ -5026,7 +5332,7 @@ function renderLore() {
       <ul class="claims">${e.claims.map(c => {
         const r = c.result || checkClaim(W, c);
         const st = c.status || (r.ok ? "ok" : "false");
-        const tag = st === "ok" ? "符合" : st === "stale" ? "过期" : "不符";
+        const tag = st === "ok" ? L("符合", "holds") : st === "stale" ? L("过期", "stale") : L("不符", "false");
         return `<li class="cl ${st}"><span class="cl-tag">${tag}</span><span>${esc(r.label)}${st !== "ok" ? `<em>${esc(r.measured)}</em>` : ""}</span></li>`;
       }).join("")}</ul>
     </article>`).join("");
@@ -5178,29 +5484,30 @@ function renderCity() {
   const sn = curSnap(), tabs = $("#cityTabs"), cv = $("#cityCanvas");
   if (!sn) { tabs.innerHTML = ""; return; }
   const W = sn.W, list = W.spec.settlements;
-  if (!list.length) { tabs.innerHTML = `<p class="empty">这个区域没有聚落。</p>`; return; }
+  if (!list.length) { tabs.innerHTML = `<p class="empty">${L("这个区域没有聚落。", "This region has no settlements.")}</p>`; return; }
   if (!list.some(s => s.id === S.city)) S.city = (list.find(s => s.type === "city") || list.find(s => s.type === "port") || list[0]).id;
   tabs.innerHTML = list.map(s => `<button type="button" data-sid="${s.id}" aria-pressed="${s.id === S.city}">${esc(s.name)}<small>${TYPE_ZH[s.type]}</small></button>`).join("");
   tabs.querySelectorAll("button").forEach(b => b.onclick = () => selectCity(b.dataset.sid));
   const s = list.find(q => q.id === S.city);
   $("#cityTitle").textContent = s.name;
   const reg = REGION_ZH[regionOf(...W.P.pos[s.id])];
-  if (!plansReady(W)) { $("#citySub").textContent = "正在生成城市规划…"; const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height); $("#cityLegend").innerHTML = ""; $("#cityLandmarks").innerHTML = ""; schedulePlans(W); return; }
+  if (!plansReady(W)) { $("#citySub").textContent = L("正在生成城市规划…", "Planning towns…"); const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height); $("#cityLegend").innerHTML = ""; $("#cityLandmarks").innerHTML = ""; schedulePlans(W); return; }
   const P = cityPlan(W, s);
   const f = settlementFacts(W, s);
-  $("#citySub").textContent = `${TYPE_ZH[s.type]}，位于${reg}部，${BIOME_ZH[f.biome]}${f.coastal ? "，临海" : ""}${f.river ? `，${nameOf(W, f.river)}流经` : ""}。图示范围约 ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km 见方，城镇按示意比例放大。风格：${ERA_ZH[P.style.era]}·${PATTERN_ZH[P.style.street_pattern]}·街区 ${P.style.block_scale}×·楼高 ${P.style.building_height}×${P.walls.length ? "·有城墙" : ""}。`;
+  $("#citySub").textContent = L(`${TYPE_ZH[s.type]}，位于${reg}部，${BIOME_ZH[f.biome]}${f.coastal ? "，临海" : ""}${f.river ? `，${nameOf(W, f.river)}流经` : ""}。图示范围约 ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km 见方，城镇按示意比例放大。风格：${ERA_ZH[P.style.era]}·${PATTERN_ZH[P.style.street_pattern]}·街区 ${P.style.block_scale}×·楼高 ${P.style.building_height}×${P.walls.length ? "·有城墙" : ""}。`,
+    `A ${TYPE_ZH[s.type]} in ${RG(regionOf(...W.P.pos[s.id]))}, ${BIOME_ZH[f.biome]}${f.coastal ? ", on the coast" : ""}${f.river ? `, on the ${nameOf(W, f.river)}` : ""}. The plan covers about ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km square; towns are drawn larger than life. Style: ${ERA_ZH[P.style.era]} · ${PATTERN_ZH[P.style.street_pattern]} · blocks ${P.style.block_scale}× · height ${P.style.building_height}×${P.walls.length ? " · walled" : ""}.`);
   drawCityDetail(W, P);
   const total = Object.values(P.zoneCells).reduce((a, b) => a + b, 0) || 1;
   const zones = Object.entries(P.zoneCells).sort((a, b) => b[1] - a[1]);
   $("#cityLegend").innerHTML = zones.map(([z, n]) => `<li data-zone="${z}"><span class="sw" style="background:${ZONES[z].block || ZONES[z].ground}"></span>${ZONES[z].zh}<b>${Math.round(n / total * 100)}%</b></li>`).join("")
-    + `<li data-zone="road"><span class="sw road"></span>主干道与环路</li>` + (P.walls.length ? `<li><span class="sw wall"></span>城墙</li>` : "");
+    + `<li data-zone="road"><span class="sw road"></span>${L("主干道与环路", "main roads and ring roads")}</li>` + (P.walls.length ? `<li><span class="sw wall"></span>${L("城墙", "town wall")}</li>` : "");
   $("#cityLegend").querySelectorAll("li[data-zone]").forEach(li => {
     li.onmouseenter = () => { S.cityZoneHl = li.dataset.zone === "road" ? null : li.dataset.zone; drawCityDetail(W, P); };
     li.onmouseleave = () => { S.cityZoneHl = null; drawCityDetail(W, P); };
   });
   const counts = {}; for (const L of P.landmarks) counts[L.kind] = (counts[L.kind] || 0) + 1;
   $("#cityLandmarks").innerHTML = Object.entries(counts).map(([k, n]) => `<li><span class="ic">${LANDMARK[k].icon}</span>${LANDMARK[k].zh}${n > 1 ? ` ×${n}` : ""}</li>`).join("")
-    + `<li class="meta">${P.blocks.length} 个街区，${P.buildings.length} 栋建筑</li>`;
+    + `<li class="meta">${L(`${P.blocks.length} 个街区，${P.buildings.length} 栋建筑`, `${P.blocks.length} blocks, ${P.buildings.length} buildings`)}</li>`;
 }
 function drawCityDetail(W, P) {
   const cv = $("#cityCanvas"), ctx = cv.getContext("2d"), SZ = cv.width;
@@ -5241,7 +5548,7 @@ function drawCityDetail(W, P) {
   halo(ctx, P.name, 16, 24, `700 24px ${SERIF}`, INK, "left");
   // scale bar
   const bar = 10 / KM_PER_CELL * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - bar, SZ - 24, bar, 4);
-  halo(ctx, "10 km（示意）", SZ - 24 - bar / 2, SZ - 36, `500 12px ${SANS}`, INK, "center");
+  halo(ctx, L("10 km（示意）", "10 km (schematic)"), SZ - 24 - bar / 2, SZ - 36, `500 12px ${SANS}`, INK, "center");
 }
 
 // ---------- rendering: map ----------
@@ -5370,7 +5677,7 @@ function render2D() {
   const cv = $("#map"), ctx = cv.getContext("2d"), SZ = cv.width, k = SZ / N;
   const sn = curSnap();
   ctx.clearRect(0, 0, SZ, SZ);
-  if (!sn) { ctx.fillStyle = "#dfe4de"; ctx.fillRect(0, 0, SZ, SZ); halo(ctx, "地图会显示在这里", SZ / 2, SZ / 2, `500 24px ${SERIF}`, INK, "center"); return; }
+  if (!sn) { ctx.fillStyle = "#dfe4de"; ctx.fillRect(0, 0, SZ, SZ); halo(ctx, L("地图会显示在这里", "The map appears here"), SZ / 2, SZ / 2, `500 24px ${SERIF}`, INK, "center"); return; }
   const W = sn.W;
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(baseImage(sn, "2d"), 0, 0, SZ, SZ);
   const c = i => [(i % N + 0.5) * k, (Math.floor(i / N) + 0.5) * k];
@@ -5450,7 +5757,7 @@ initControls();
 setViewMode(window.THREE ? "3d" : "2d");
 renderLore(); updateEditButtonsSafe();
 function updateEditButtonsSafe() { S.spec = S.spec || { settlements: [] }; updateEditButtons(); }
-(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent({ eng: "offline" }));   // the opening map never spends credit
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent({ eng: "offline", boot: true }));   // the opening map never spends credit
 
 </script>
 </body>

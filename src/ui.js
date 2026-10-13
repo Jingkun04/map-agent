@@ -28,21 +28,29 @@ const keyStore = {
   set(v) { try { v ? localStorage.setItem(OR_KEY_SLOT, v) : localStorage.removeItem(OR_KEY_SLOT); } catch {} },
 };
 
+function tierLabels() {
+  const m = S.models || {}, w = x => L(`（${x}）`, ` (${x})`);
+  $("#tier").options[0].text = "default" + w(m.default || L("更准", "more accurate"));
+  $("#tier").options[1].text = "quick" + w(m.quick || L("更快", "faster"));
+}
+function setStatus(msg, state) {
+  S.statusMsg = msg; S.statusState = state;
+  $("#agentStatus").textContent = typeof msg === "function" ? msg() : msg; $("#agentStatus").dataset.state = state;
+}
 function unlockModel(sample, models, msg) {
   S.sample = sample;
   $("#engClaude").disabled = false;
   if (!S.running) { $("#engClaude").checked = true; $("#tierWrap").hidden = false; }   // a prompt-first page wants the model by default
-  $("#tier").options[0].text = `default（${models.default}）`;
-  $("#tier").options[1].text = `quick（${models.quick}）`;
-  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "ok";
+  S.models = models; tierLabels();
+  setStatus(msg, "ok");
 }
 function lockModel(msg) {
   S.sample = null;
   $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true;
-  $("#agentStatus").textContent = msg; $("#agentStatus").dataset.state = "off";
+  setStatus(msg, "off");
 }
-const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，也没有连上本地代理。在下方填入 OpenRouter API key 即可解锁模型阶段；"
-  + "不填就只跑离线脚本策略。";
+const NO_MODEL_MSG = () => L("这个页面不在 claude.ai 的 artifact 运行时里，也没有连上本地代理。在下方填入 OpenRouter API key 即可解锁模型阶段；不填就只跑离线脚本策略。",
+  "This page is not running inside claude.ai and found no local proxy. Paste an OpenRouter API key below to unlock the model stages; without one only the offline scripted policies run.");
 
 (async () => {
   try {
@@ -51,8 +59,8 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
     if (!s) throw 0;
     S.sample = s;
     $("#engClaude").disabled = false;
-    $("#agentStatus").textContent = "Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）";
-    $("#agentStatus").dataset.state = "ok";
+    setStatus(() => L("Claude 可用：切换到 Claude 后，规划、提议关系、冲突让步、修正和写设定都是真实模型调用（第一次调用会请求授权）",
+      "Claude is available: with Claude selected, planning, relations, negotiation, repair and lore are real model calls (the first call asks for permission)."), "ok");
     return;
   } catch {}
   try {
@@ -61,7 +69,8 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
     const h = r.ok && await r.json();
     if (!h || !h.ok) throw 0;
     unlockModel(openRouterSample(proxyPost), h.models,
-      `本地 OpenRouter 代理可用：切换到 Claude 后，各阶段经 server.js 调用 ${h.models.default}，API key 只留在本机。`);
+      () => L(`本地 OpenRouter 代理可用：切换到 Claude 后，各阶段经 server.js 调用 ${h.models.default}，API key 只留在本机。`,
+        `Local OpenRouter proxy found: with Claude selected, every stage calls ${h.models.default} through server.js, and the API key stays on this machine.`));
     return;
   } catch {}
   // A plain static host (GitHub Pages) or a file opened from disk: offer the key field.
@@ -71,7 +80,7 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
   $("#orKey").onkeydown = e => { if (e.key === "Enter") useKey($("#orKey").value.trim()); };
   $("#orKeyForget").onclick = () => {
     keyStore.set(null); $("#orKey").value = ""; $("#orKeyForget").hidden = true;
-    $("#orKeyMsg").textContent = "已从这个浏览器删除 key。"; lockModel(NO_MODEL_MSG);
+    $("#orKeyMsg").textContent = L("已从这个浏览器删除 key。", "Key removed from this browser."); lockModel(NO_MODEL_MSG);
   };
   const saved = keyStore.get();
   if (saved) { $("#orKey").value = saved; useKey(saved); }
@@ -80,19 +89,19 @@ const NO_MODEL_MSG = "这个页面不在 claude.ai 的 artifact 运行时里，�
 // Check the key against OpenRouter before unlocking, so a typo surfaces here rather than mid-run.
 async function useKey(key) {
   const msg = $("#orKeyMsg");
-  if (!/^sk-or-/.test(key)) { msg.textContent = "这不像 OpenRouter 的 key（应以 sk-or- 开头）。"; return; }
-  msg.textContent = "正在验证 key…"; $("#orKeyUse").disabled = true;
+  if (!/^sk-or-/.test(key)) { msg.textContent = L("这不像 OpenRouter 的 key（应以 sk-or- 开头）。", "That does not look like an OpenRouter key (it should start with sk-or-)."); return; }
+  msg.textContent = L("正在验证 key…", "Checking the key…"); $("#orKeyUse").disabled = true;
   try {
     const r = await fetch(`${OR_API}/key`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
-    if (r.status === 401) { msg.textContent = "OpenRouter 不认这个 key（无效或已被撤销）。"; return; }
-    if (!r.ok) { msg.textContent = `验证失败（HTTP ${r.status}），稍后再试。`; return; }
+    if (r.status === 401) { msg.textContent = L("OpenRouter 不认这个 key（无效或已被撤销）。", "OpenRouter rejected this key (invalid or revoked)."); return; }
+    if (!r.ok) { msg.textContent = L(`验证失败（HTTP ${r.status}），稍后再试。`, `Check failed (HTTP ${r.status}); try again later.`); return; }
     const d = (await r.json()).data || {};
     keyStore.set(key); $("#orKeyForget").hidden = false;
-    const left = d.limit_remaining != null ? `剩余额度 $${(+d.limit_remaining).toFixed(2)}` : "无额度上限";
-    msg.textContent = `key 有效，${left}。只保存在这个浏览器里，请求直接发往 openrouter.ai。`;
-    unlockModel(openRouterSample(directPost(key)), OR_MODELS, `已用你的 OpenRouter key 解锁：切换到 Claude 后，各阶段直接调用 ${OR_MODELS.default}。`);
+    const left = d.limit_remaining != null ? L(`剩余额度 $${(+d.limit_remaining).toFixed(2)}`, `$${(+d.limit_remaining).toFixed(2)} credit left`) : L("无额度上限", "no credit limit");
+    msg.textContent = L(`key 有效，${left}。只保存在这个浏览器里，请求直接发往 openrouter.ai。`, `Key accepted, ${left}. It is kept only in this browser, and requests go straight to openrouter.ai.`);
+    unlockModel(openRouterSample(directPost(key)), OR_MODELS, () => L(`已用你的 OpenRouter key 解锁：切换到 Claude 后，各阶段直接调用 ${OR_MODELS.default}。`, `Unlocked with your OpenRouter key: with Claude selected, every stage calls ${OR_MODELS.default} directly.`));
   } catch {
-    msg.textContent = "连不上 openrouter.ai，检查网络后再试。";
+    msg.textContent = L("连不上 openrouter.ai，检查网络后再试。", "Cannot reach openrouter.ai; check the network and try again.");
   } finally { $("#orKeyUse").disabled = false; }
 }
 
@@ -183,14 +192,19 @@ function openRouterSample(post) {
 function initControls() {
   // example prompts: clicking one only fills the box. The four presets double as examples because each carries a
   // hand-written WorldSpec, which is what lets the offline engine run them (and what the experiments score against).
-  $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
-  $("#examples").querySelectorAll("button").forEach(b => b.onclick = () => { $("#desc").value = EXAMPLES[+b.dataset.k].text; $("#desc").focus(); });
-  $("#desc").value = PRESETS[0].text;
+  let lang = "zh"; try { lang = localStorage.getItem("region-map-agent.lang") || (/^zh/i.test(navigator.language || "zh") ? "zh" : "en"); } catch {}
+  setLang(lang);
+  $("#langBtn").onclick = () => setLang(LANG === "en" ? "zh" : "en");
+  renderExamples();
+  $("#desc").value = L(PRESETS[0].text, PRESETS[0].text_en);
   $("#randomBtn").onclick = () => { newRandomWorld(); runAgent({ eng: "offline" }); };
   $("#layoutBtn").onclick = () => setWide(!document.body.classList.contains("wide"));
+  $("#savePng").onclick = () => savePng();
+  $("#histClear").onclick = () => { if (confirm(L("清空全部历史记录？", "Clear all history?"))) { writeHistory([]); S.recordId = null; renderHistory(); } };
+  renderHistory();
   let wide = true; try { wide = localStorage.getItem("region-map-agent.layout") !== "side"; } catch {}
   setWide(wide);
-  for (const r of REGIONS) { $("#editR").add(new Option(REGION_ZH[r] + "部", r)); $("#ridgeR").add(new Option(REGION_ZH[r] + "部", r)); }
+  fillRegionSelects();
   document.querySelectorAll('input[name="engine"]').forEach(el => el.onchange = () => { $("#tierWrap").hidden = engine() !== "claude"; });
   $("#run").onclick = () => runAgent();
   $("#stop").onclick = () => { if (S.ctl) S.ctl.abort(); };
@@ -211,7 +225,7 @@ function initControls() {
     if (x < 0 || y < 0 || x >= N || y >= N) return;
     showCell(sn.W, x, y);
   });
-  cv.addEventListener("mouseleave", () => { $("#readout").textContent = READOUT_HINT; });
+  cv.addEventListener("mouseleave", () => { $("#readout").textContent = READOUT_HINT_FN(); });
   cv.addEventListener("click", e => {
     const sn = curSnap(); if (!sn) return;
     const r = cv.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width * N, y = (e.clientY - r.top) / r.height * N;
@@ -232,7 +246,16 @@ function initControls() {
   gm.addEventListener("mousemove", e => { const ic = gmPick(e); gm.style.cursor = ic ? "pointer" : "default"; if (GM.hover !== ic) { GM.hover = ic; renderGameMap(); } });
   $("#camTop").onclick = () => { setView("top"); };
 }
-const READOUT_HINT = "把鼠标移到地图上查看格点信息。";
+const READOUT_HINT_FN = () => L("把鼠标移到地图上查看格点信息。", "Hover the map to read a cell.");
+function fillRegionSelects() {
+  for (const id of ["#editR", "#ridgeR"]) { const el = $(id), v = el.value; el.innerHTML = ""; for (const r of REGIONS) el.add(new Option(L(REGION_ZH[r] + "部", REGION_ZH[r][0].toUpperCase() + REGION_ZH[r].slice(1)), r)); if (v) el.value = v; }
+}
+function updateScaleHint() {
+  if (!S.spec || !S.spec.settlements) return;
+  const km = (SCALES[S.spec.scale] || SCALES.region).km * N;
+  $("#scaleHint").textContent = L(`图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`,
+    `Map ${km} × ${km} km, 512 × 512 cells (${km / N} km each), north up.${S.spec.landform ? ` Landform: ${LANDFORM_ZH[S.spec.landform]}.` : ""}`);
+}
 function setWide(on) {
   document.body.classList.toggle("wide", on);
   $("#layoutBtn").setAttribute("aria-pressed", String(on));
@@ -240,13 +263,16 @@ function setWide(on) {
   if (V3 && V3.ok) { resize3D(); setView("oblique"); }
   if (S.view === "game") renderGameMap(true);
 }
-const EXAMPLES = [
-  { label: "沙漠绿洲帝国", text: "一个被沙漠包围的绿洲帝国" },
-  { label: "维京群岛", text: "北方冰海上的维京群岛" },
-  { label: "热带火山岛", text: "热带海上的一座火山岛，岛上有古老的神庙和走私者的港口" },
-  { label: "峡湾王国", text: "寒冷多雨的峡湾海岸，山民王国沿着峡湾修建堡垒" },
-  ...PRESETS.map(p => ({ label: p.label, text: p.text })),
+const EXAMPLES_ = [
+  { label: ["沙漠绿洲帝国", "Desert oasis empire"], text: ["一个被沙漠包围的绿洲帝国", "An oasis empire surrounded by desert"] },
+  { label: ["维京群岛", "Viking isles"], text: ["北方冰海上的维京群岛", "Viking islands in a northern ice sea"] },
+  { label: ["热带火山岛", "Tropical volcano"], text: ["热带海上的一座火山岛，岛上有古老的神庙和走私者的港口", "A volcanic island in a tropical sea, with ancient temples and a smugglers' port"] },
+  { label: ["峡湾王国", "Fjord kingdom"], text: ["寒冷多雨的峡湾海岸，山民王国沿着峡湾修建堡垒", "A cold, rainy fjord coast where mountain kingdoms build forts along the inlets"] },
+  ...PRESETS.map(p => ({ label: [p.label, p.label_en], text: [p.text, p.text_en] })),
 ];
+const EXAMPLES = new Proxy(EXAMPLES_, { get: (t, k) => typeof k === "string" && /^\d+$/.test(k) ? { label: L(...t[k].label), text: L(...t[k].text) } : k === "map" ? f => t.map((e, i) => f({ label: L(...e.label), text: L(...e.text) }, i)) : t[k] });
+// the same description in the other language, so switching keeps an example selected
+const otherLangText = d => { for (const e of EXAMPLES_) { const k = e.text.indexOf(d); if (k >= 0) return e.text[1 - k]; } return null; };
 // a random world skips the planner: its WorldSpec is drawn from a seed, and the description is a summary of it
 function newRandomWorld() {
   S.randomSpec = randomSpec(Math.floor(Math.random() * 1e6));
@@ -255,8 +281,9 @@ function newRandomWorld() {
 }
 function showCell(W, x, y) {
   const i = y * N + x, rel = W.h[i] - W.P.sea;
-  const elev = W.ocean[i] ? `水深约 ${Math.round(-rel * 6000)} m` : `海拔约 ${Math.round(Math.max(0, rel) * 6000)} m`;
-  $("#readout").textContent = `${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * kmOf(W)} km、北界 ${y * kmOf(W)} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`;
+  const elev = W.ocean[i] ? L(`水深约 ${Math.round(-rel * 6000)} m`, `depth about ${Math.round(-rel * 6000)} m`) : L(`海拔约 ${Math.round(Math.max(0, rel) * 6000)} m`, `elevation about ${Math.round(Math.max(0, rel) * 6000)} m`);
+  $("#readout").textContent = L(`${REGION_ZH[regionOf(x, y)]}部，距西界 ${x * kmOf(W)} km、北界 ${y * kmOf(W)} km；${elev}，湿度 ${W.moist[i].toFixed(2)}，${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? "，河道" : ""}`,
+    `${RG(regionOf(x, y))}, ${x * kmOf(W)} km from the west edge and ${y * kmOf(W)} km from the north; ${elev}, moisture ${W.moist[i].toFixed(2)}, ${BIOME_ZH[W.biome[i]]}${W.hy.channel[i] && !W.hy.lake[i] ? ", river channel" : ""}`);
 }
 function setViewMode(v) {
   if ((v === "3d" || v === "game") && !(V3 && (V3.ok || init3D()))) v = "2d";
@@ -267,17 +294,198 @@ function setViewMode(v) {
   $("#ctl3d").hidden = v !== "3d";
   $("#gamemap").hidden = v !== "game";
   $("#ctlgame").hidden = v !== "game";
-  $("#readout").textContent = v === "game" ? "俯视渲染叠加探索迷雾与图标；点击城镇图标可在下方查看它的规划详图。" : READOUT_HINT;
+  $("#readout").textContent = v === "game" ? L("俯视渲染叠加探索迷雾与图标；点击城镇图标可在下方查看它的规划详图。", "Top-down render with fog of war and icons; click a town icon to see its plan below.") : READOUT_HINT_FN();
   if (v === "3d") resize3D();
   renderMap();
 }
 
 function setBusy(b, msg) {
   S.running = b;
-  for (const id of ["#run", "#loreBtn", "#moveBtn", "#ridgeBtn", "#rewriteBtn", "#obeyBtn"]) $(id).disabled = b;
+  for (const id of ["#run", "#loreBtn", "#moveBtn", "#ridgeBtn", "#rewriteBtn", "#obeyBtn", "#randomBtn"]) $(id).disabled = b;
   $("#stop").hidden = !(b && engine() === "claude");
-  $("#busy").textContent = b ? (msg || "运行中") : "";
-  if (!b) updateEditButtons();
+  $("#busy").textContent = b ? (msg || L("运行中", "Running")) : "";
+  if (!b) { updateEditButtons(); saveRecord(); }     // every finished run or edit updates its history record
+}
+
+// ---------- language ----------
+// Static page text is translated by exact match against this table (originals are kept on the node, so switching
+// back restores them); everything the program writes goes through L(). Past trace entries keep the language they
+// were written in.
+const I18N_EN = {
+  "区域地图 Agent 演示": "Region Map Agent demo", "区域地图 Agent": "Region Map Agent",
+  "把一段世界观描述变成地形、水系和聚落，由验证器找出物理规律与设定上的矛盾，再让 agent 调用生成工具逐轮修正。写好的世界观会被逐条对照地图核查。":
+    "Turns a worldbuilding description into terrain, water and settlements. A verifier finds what breaks physics or the description, and an agent repairs the map round by round with generator tools. Written lore is checked against the map claim by claim.",
+  "正在检测 Claude 是否可用": "Checking whether Claude is available",
+  "描述你的世界": "Describe your world", "一句话也行，模型会把世界补全": "One sentence is enough; the model fills the world out",
+  "比如：北方冰海上的维京群岛": "e.g. Viking islands in a northern ice sea", "示例描述": "Example descriptions",
+  "生成世界": "Generate world", "随机世界": "Random world", "停止": "Stop",
+  "抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型": "Draw a random world: landform, climate, scale, ranges and settlements all come from a seed, with no model call",
+  "历史记录（最近 10 条，存在这个浏览器里）": "History (last 10, stored in this browser)", "清空历史": "Clear history",
+  "规划与修正由谁完成": "Who plans and repairs", "离线脚本策略": "Offline scripted policy",
+  "即时运行，按违规类型套规则，用来模拟 agent": "Instant; applies rules per violation type to imitate an agent",
+  "规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒":
+    "Planner, relation proposals, negotiation, repair and lore are real model calls, about 10–60 s per round; rebuilding the map locally takes about 1 s",
+  "OpenRouter API key（只存在这个浏览器里）": "OpenRouter API key (kept only in this browser)", "使用": "Use", "忘记": "Forget",
+  "key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。": "The key is never written into the page or sent anywhere except with requests to openrouter.ai.",
+  "模型档位": "Model tier", "高级设置（实验用）": "Advanced (for experiments)", "验证器给 agent 的反馈": "Verifier feedback to the agent",
+  "结构化违规报告": "Structured violation report", "只告诉通过或不通过": "Pass / fail only", "不反馈，只生成一次": "No feedback, generate once",
+  "最多迭代轮数": "Max iterations", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
+  "地图": "Map", "大图布局": "Big map", "地图占满整行，设置和检查面板移到下方": "The map takes the full row; panels move below it",
+  "保存平面图": "Save flat map", "把平面地图（含水系、聚落和标注）保存成 PNG 图片": "Save the flat map (with water, towns and marks) as a PNG",
+  "视图": "View", "3D 沙盘": "3D diorama", "平面地图": "Flat map", "游戏地图": "Game map",
+  "区域图": "Region", "聚焦城镇": "Focus town", "探索迷雾": "Fog of war", "重新渲染": "Re-render",
+  "点击传送点图标可放大该城镇，再点一次返回": "Click a waypoint to zoom into that town; click again to return",
+  "地形夸张": "Relief", "斜视": "Oblique", "俯视": "Top", "拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去": "Drag to rotate, scroll to zoom, Shift or right-drag to pan; click a town name to fly there",
+  "底图": "Base", "地图册": "Atlas", "地形浮雕": "Relief", "高程": "Elevation", "水系": "Water", "聚落": "Towns", "违规标记": "Violations", "分区": "Grid",
+  "生成的区域地图（平面）": "Generated region map (flat)", "生成的区域地图（3D 沙盘，可用方向键旋转）": "Generated region map (3D, arrow keys rotate)", "游戏风格地图": "Game-style map",
+  "正在看历史快照；编辑总是基于最新一版": "Viewing an earlier snapshot; edits always apply to the latest",
+  "把鼠标移到地图上查看格点信息。": "Hover the map to read a cell.", "迭代快照": "Iteration snapshots",
+  "验证与修正": "Verification and repair", "检查结果": "Checks", "城市详图": "City plans",
+  "每个聚落都会按地形、水系和进城道路生成规划：先划分功能片区，街道网格对齐主干道，再放置广场、教堂、医院等地标。点击地图上的城镇也能切换到这里。把鼠标移到图例上可以单独突出某一类片区。":
+    "Every settlement gets a plan from its terrain, water and approach roads: districts first, then a street lattice aligned to the main roads, then landmarks such as plazas, churches and hospitals. Click a town on the map to switch here; hover the legend to highlight one kind of district.",
+  "选择聚落": "Choose a settlement", "城市规划详图": "City plan", "功能区": "Districts", "地标": "Landmarks", "在 3D 沙盘中查看": "View in the 3D diorama",
+  "局部编辑": "Local edits", "修改地图后，只重新计算受影响的部分，并把被推翻的设定标为过期。然后可以选择改设定，或让地图服从设定。":
+    "After an edit only the affected part is recomputed, and lore it contradicts is marked stale. Then rewrite the lore, or make the map obey it.",
+  "目标区域": "Target region", "移动聚落": "Move town", "区域": "Region", "在此隆起山脊": "Raise a ridge here",
+  "时代": "Era", "中世纪": "medieval", "近现代": "modern", "未来": "future", "异星": "alien",
+  "街道形态": "Street pattern", "有机街道": "organic streets", "棋盘网格": "grid", "放射状": "radial", "环状": "ring", "等高线梯田": "terraced",
+  "城墙": "Walls", "城墙：按时代": "Walls: by era", "城墙：总是有": "Walls: always", "城墙：不建": "Walls: never", "按此风格重画城市": "Redraw towns in this style",
+  "风格档案由意图层（": "The style profile is read off the description by the intent layer (",
+  "）从描述里读出，只影响城镇怎么画，不影响任何地理约束。选时代会把街道形态、街区尺度、楼高和地标词表一起切到该时代的默认值；之后再单独改街道形态可以覆盖它。":
+    "). It only changes how towns are drawn, never a geographic constraint. Picking an era resets street pattern, block scale, building height and landmarks to that era's defaults; a street pattern chosen afterwards overrides it.",
+  "重写过期设定": "Rewrite stale lore", "让地图服从设定": "Make the map obey the lore",
+  "先生成地图和世界观，再来这里修改。": "Generate a map and its lore first, then edit here.",
+  "离线模式下的规划、修正和写作都是规则脚本，只用于展示流程；切换到 Claude 才是真正的 LLM agent。": "Offline, planning, repair and writing are rule scripts that only show the workflow; switch to Claude for the real LLM agent.",
+  "世界观与地图联动": "Lore linked to the map",
+  "设定作者只能通过地图查询工具获取地理事实，文中用实体引用指向地图对象。每条地理描述都会变成可核查的声明；把鼠标移到卡片或金色名字上，地图会标出对应位置。":
+    "The lore writer gets geographic facts only through map query tools and refers to map objects by id. Every geographic statement becomes a checkable claim; hover a card or a gold name to see it on the map.",
+  "生成世界观": "Generate lore", "点击查看城市详图": "Click to see the city plan", "切换界面语言 / Switch language": "切换界面语言 / Switch language",
+};
+function translateStatic() {
+  const swap = (orig) => { if (LANG !== "en") return orig; const t = orig.trim(); return I18N_EN[t] ? orig.replace(t, I18N_EN[t]) : orig; };
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walk.nextNode());) {
+    if (n.__zh === undefined) n.__zh = I18N_EN[n.nodeValue.trim()] ? n.nodeValue : null;
+    if (n.__zh !== null) n.nodeValue = swap(n.__zh);
+  }
+  for (const el of document.querySelectorAll("[title], [placeholder], [aria-label]")) for (const a of ["title", "placeholder", "aria-label"]) {
+    if (!el.hasAttribute(a)) continue;
+    const k = "zh_" + a.replace("-", "");
+    if (el.dataset[k] === undefined) { if (!I18N_EN[el.getAttribute(a).trim()]) continue; el.dataset[k] = el.getAttribute(a); }
+    el.setAttribute(a, swap(el.dataset[k]));
+  }
+  document.title = LANG === "en" ? I18N_EN["区域地图 Agent 演示"] : "区域地图 Agent 演示";
+  document.documentElement.lang = LANG === "en" ? "en" : "zh-CN";
+}
+const NAME_TABLES = () => ({ REGION_ZH, TYPE_ZH, REQ_ZH, REL_ZH, BIOME_ZH, RIVER_NAMES, LAKE_NAMES, DIRS8, LANDFORM_ZH, CHAR_METRICS, CHAR_LEVEL_ZH, ERA_ZH, PATTERN_ZH });
+const NAMES_EN_UI = { ERA_ZH: { medieval: "medieval", modern: "modern", future: "future", alien: "alien" },
+  PATTERN_ZH: { organic: "organic streets", grid: "grid", radial: "radial", ring: "ring", terraced: "terraced" } };
+let NAMES_ZH_SAVED = null;
+function setLang(lang) {
+  const tables = NAME_TABLES();
+  if (!NAMES_ZH_SAVED) NAMES_ZH_SAVED = Object.fromEntries(Object.entries(tables).map(([k, t]) => [k, JSON.parse(JSON.stringify(t))]));
+  const prev = LANG;
+  LANG = lang === "en" ? "en" : "zh";
+  for (const [k, t] of Object.entries(tables)) {
+    const src = LANG === "en" ? (NAMES_EN[k] || NAMES_EN_UI[k]) : NAMES_ZH_SAVED[k];
+    if (!src) continue;
+    if (Array.isArray(t)) t.splice(0, t.length, ...src); else Object.assign(t, src);
+  }
+  for (const tbl of [ZONES, LANDMARK]) for (const o of Object.values(tbl)) { if (o.zh0 === undefined) o.zh0 = o.zh; o.zh = LANG === "en" ? (o.en || o.zh0) : o.zh0; }
+  try { localStorage.setItem("region-map-agent.lang", LANG); } catch {}
+  $("#langBtn").textContent = LANG === "en" ? "中文" : "EN";
+  translateStatic();
+  if (prev === LANG) return;
+  // re-render everything the program wrote; keep an example description selected in the new language
+  const d = $("#desc").value.trim(), o = otherLangText(d); if (o) $("#desc").value = o;
+  if (S.statusMsg) setStatus(S.statusMsg, S.statusState);
+  tierLabels(); fillRegionSelects(); renderExamples(); updateScaleHint(); renderHistory();
+  $("#readout").textContent = READOUT_HINT_FN();
+  if (S.snaps.length) refreshAll();
+  if (S.view === "game") renderGameMap(true);
+}
+function renderExamples() {
+  $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
+  $("#examples").querySelectorAll("button").forEach(b => b.onclick = () => { $("#desc").value = EXAMPLES[+b.dataset.k].text; $("#desc").focus(); });
+}
+
+// ---------- history ----------
+// A world is fully determined by its WorldSpec and generator params, so a record stores those (a few KB) plus the
+// trace, lore and headline numbers, and loading re-derives the map. Records live in this browser's localStorage only.
+const HIST_KEY = "region-map-agent.history", HIST_MAX = 10;
+function readHistory() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } }
+function writeHistory(list) {
+  if (!list.length) { try { localStorage.removeItem(HIST_KEY); } catch {} return true; }
+  // a full quota drops the oldest records first, then thumbnails, rather than losing the newest run
+  for (let l = list.slice(0, HIST_MAX); l.length; l = l.slice(0, -1)) {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(l)); return true; } catch {}
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(l.map(r => ({ ...r, thumb: null })))); return true; } catch {}
+  }
+  return false;
+}
+function thumbOf(sn) {
+  try {
+    const c = document.createElement("canvas"); c.width = c.height = 104;
+    const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(baseImage(sn, "2d"), 0, 0, 104, 104);
+    return c.toDataURL("image/jpeg", 0.72);
+  } catch { return null; }
+}
+function saveRecord() {
+  const sn = last();
+  if (!S.recordId || !sn || !S.spec) return;
+  const rep = reportOf(sn);
+  const rec = {
+    id: S.recordId, t: S.recordT || Date.now(), desc: S.recordDesc || "", name: S.spec.name,
+    landform: S.spec.landform || "", scale: S.spec.scale || "region", engine: S.recordEng || "offline",
+    spec: S.spec, P: sn.W.P, lore: S.lore, trace: S.trace.map(t => ({ ...t, pending: null })),
+    traj: S.trajOverride || S.snaps.filter(x => x.kind !== "edit").map(x => reportOf(x).fails.length),
+    fails: rep.fails.length, rate: rep.rate, calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
+  };
+  const list = readHistory().filter(r => r.id !== rec.id);
+  list.unshift(rec);
+  writeHistory(list);
+  renderHistory();
+}
+function loadRecord(id) {
+  if (S.running) return;
+  const rec = readHistory().find(r => r.id === id); if (!rec) return;
+  S.ctl = new AbortController();
+  S.spec = rec.spec; S.lore = rec.lore || null; bumpLore();
+  S.trace = rec.trace || []; S.llmCalls = rec.calls || 0; S.fit = rec.fit ?? null; S.elapsed = rec.elapsed || 0; S.focus = null;
+  S.recordId = rec.id; S.recordT = rec.t; S.recordDesc = rec.desc; S.recordEng = rec.engine;
+  S.trajOverride = rec.traj || null;
+  const W = derive(rec.spec, rec.P);
+  S.snaps = []; pushSnap(W, L("历史记录", "History"), "init");
+  $("#desc").value = rec.desc || "";
+  $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+  updateScaleHint(); fillEditSelects(); syncStyleControls(); refreshAll(); renderHistory();
+  $(".map-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function renderHistory() {
+  const list = readHistory(), el = $("#histList");
+  $("#histClear").hidden = !list.length;
+  if (!list.length) { el.innerHTML = `<li class="empty">${L("还没有记录。生成一张地图后会自动保存在这里。", "Nothing yet. Each map you generate is saved here.")}</li>`; return; }
+  const when = t => new Date(t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  el.innerHTML = list.map(r => `<li class="${r.id === S.recordId ? "cur" : ""}">
+      ${r.thumb ? `<img src="${r.thumb}" alt="">` : `<span></span>`}
+      <div><div class="h-name" title="${esc(r.desc)}">${esc(r.name)}</div>
+        <div class="h-sub">${when(r.t)} · ${esc(LANDFORM_ZH[r.landform] || "")} · ${L(`${r.fails} 项违规`, `${r.fails} violations`)}${r.fit != null ? L(` · 吻合 ${r.fit}/5`, ` · fit ${r.fit}/5`) : ""}</div>
+        <div class="h-sub">${esc(r.desc)}</div></div>
+      <div class="h-btns"><button type="button" data-load="${r.id}">${L("载入", "Load")}</button><button type="button" data-del="${r.id}">${L("删除", "Delete")}</button></div>
+    </li>`).join("");
+  el.querySelectorAll("[data-load]").forEach(b => b.onclick = () => loadRecord(b.dataset.load));
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { writeHistory(readHistory().filter(r => r.id !== b.dataset.del)); if (S.recordId === b.dataset.del) S.recordId = null; renderHistory(); });
+}
+// save the flat map as a PNG: whatever view is showing, draw the 2D map (with rivers, towns and marks) and export it
+function savePng() {
+  const sn = curSnap(); if (!sn) return;
+  render2D();
+  const name = (S.spec && S.spec.name || "map").replace(/[\\/:*?"<>|]+/g, "_");
+  $("#map").toBlob(b => {
+    if (!b) return;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${name}.png`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
 }
 
 // ---------- snapshots & trace ----------
@@ -287,7 +495,7 @@ function pushSnap(W, label, kind) {
   refreshAll();
 }
 function reportOf(sn) {
-  if (!sn.rep || sn.repLore !== S.loreVersion) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; }
+  if (!sn.rep || sn.repLore !== S.loreVersion || sn.repLang !== LANG) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; sn.repLang = LANG; }
   return sn.rep;
 }
 S.loreVersion = 0;
@@ -298,18 +506,19 @@ function addTrace(item) { S.trace.push(item); renderTrace(); return item; }
 function refreshAll() { renderScrub(); renderMap(); renderChecks(); renderMetrics(); renderTrace(); renderLore(); renderCity(); updateEditButtons(); }
 
 // ---------- LLM helpers ----------
-const JSON_NOTE = `
+const LANGN = () => L("Chinese", "English");   // the language the model writes its prose in
+const JSON_NOTE_FN = () => `
 
 Format: reply with one valid JSON object and nothing else. Inside string values never use a bare ASCII double quote —
-quote words with 「」 instead.`;
+quote words with ${L("「」", "single quotes ' '")} instead.`;
 async function llmJSON(prompt, what, item, retried) {
   S.llmCalls++;
   const t = performance.now();
-  if (item) { item.pending = `${what}：等待 Claude…`; renderTrace(); }
+  if (item) { item.pending = L(`${what}：等待 Claude…`, `${what}: waiting for Claude…`); renderTrace(); }
   try {
-    const out = await S.sample.json(prompt + JSON_NOTE, {
+    const out = await S.sample.json(prompt + JSON_NOTE_FN(), {
       modelTier: $("#tier").value, signal: S.ctl.signal, cache: false,
-      onText: ({ text }) => { if (item) { item.pending = `${what}：Claude 正在输出（${text.length} 字符）`; renderTrace(); } },
+      onText: ({ text }) => { if (item) { item.pending = L(`${what}：Claude 正在输出（${text.length} 字符）`, `${what}: Claude is writing (${text.length} chars)`); renderTrace(); } },
     });
     if (item) { item.pending = null; item.llm = ((performance.now() - t) / 1000).toFixed(1) + " s"; }
     return out;
@@ -320,14 +529,15 @@ async function llmJSON(prompt, what, item, retried) {
       console.warn(`[llm] ${what}: invalid JSON (${e.message}), retrying once`);
       return llmJSON(prompt + `\n\nYour previous reply to this exact request was not valid JSON (${String(e.message || "").slice(0, 80)}). Answer again.`, what, item, true);
     }
-    const map = { cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" };
-    const msg = map[e && e.code] || `调用失败（${(e && e.code) || e}）`;
+    const map = L({ cancelled: "已停止", not_granted: "未授权调用 Claude，已切回离线模式", rate_limited: "调用太频繁或额度已用完，请稍后再试", invalid_json: "Claude 的回复不是合法 JSON", refused: "Claude 拒绝了这次请求", sampling_disabled: "此账号无法调用 Claude", bad_key: "OpenRouter key 无效或已被撤销，已切回离线模式", network: "连不上模型服务，检查网络" },
+      { cancelled: "Stopped", not_granted: "Claude was not authorised; switched back to offline", rate_limited: "Too many calls or out of credit; try again later", invalid_json: "Claude's reply was not valid JSON", refused: "Claude refused this request", sampling_disabled: "This account cannot call Claude", bad_key: "The OpenRouter key is invalid or revoked; switched back to offline", network: "Cannot reach the model service; check the network" });
+    const msg = map[e && e.code] || L(`调用失败（${(e && e.code) || e}）`, `Call failed (${(e && e.code) || e})`);
     if (e && (e.code === "not_granted" || e.code === "sampling_disabled" || e.code === "bad_key")) { $("#engOff").checked = true; $("#engClaude").disabled = true; $("#tierWrap").hidden = true; }
     const err = new Error(msg); err.code = e && e.code; throw err;
   }
 }
 
-const SPEC_SCHEMA = `{"name": string, "seed": integer,
+const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
  "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland",
  "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
@@ -338,8 +548,8 @@ const SPEC_SCHEMA = `{"name": string, "seed": integer,
                   "requires": subset of ["coast","river_mouth","on_river","lakeside","near_mountain","accessible","defensible"],
                   "proposed": subset of "requires" — the ones YOU inferred rather than read,
                   "invented": true if the description never mentions this settlement,
-                  "rationale": short Chinese sentence saying why the proposed ones follow}],
- "character": [{"metric": M, "level": "none"|"low"|"moderate"|"high"|"dominant", "why": short Chinese reason}
+                  "rationale": short ${LANGN()} sentence saying why the proposed ones follow}],
+ "character": [{"metric": M, "level": "none"|"low"|"moderate"|"high"|"dominant", "why": short ${LANGN()} reason}
                | {"metric": "islands", "min": integer, "max": integer, "why": ...}],
  "names": {"rivers": [8-12 names], "lakes": [4-8 names], "places": [30-50 hamlet names]},
  "hamlets": "none"|"sparse"|"normal"|"dense",
@@ -375,14 +585,14 @@ async function llmPlan(desc, item) {
 read as a real, inhabited, distinctive place — something that sparks the reader's imagination — not a generic square of land.
 
 Reply with only one JSON object of this shape:
-${SPEC_SCHEMA}
+${SPEC_SCHEMA()}
 
 You do five jobs at once. Do the first one first: everything after it must serve it.
 
 0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-5 "character"
    expectations that the description implies and a reader would check at a glance: a desert empire is dominated by
    desert and has almost no lakes; a Viking archipelago has many islands and a cold climate; a jungle kingdom is
-   mostly forest. Each needs a Chinese "why". These rank ABOVE every site constraint: when a town's requirement
+   mostly forest. Each needs a ${LANGN()} "why". These rank ABOVE every site constraint: when a town's requirement
    would break the world's character (a lakeside town in a desert with no lakes), the town gives way, not the world.
    Then choose landform, climate_zone and scale so that the character holds.
 
@@ -396,14 +606,14 @@ You do five jobs at once. Do the first one first: everything after it must serve
    - Bring the map to roughly 8-16 named settlements and 2-5 mountain ranges in total, adding what the setting
      implies (a capital, its ports, frontier forts, mining towns, holy sites, trading posts). Mark each added
      settlement and range "invented": true; give every invented settlement at least one requirement so it sits
-     somewhere meaningful, and a Chinese rationale. Never contradict or crowd out what the author wrote: if the author
+     somewhere meaningful, and a ${LANGN()} rationale. Never contradict or crowd out what the author wrote: if the author
      lists many places, add fewer.
    - Write names in the description's language with one consistent naming culture that fits the setting (Nordic,
      desert, East Asian, Celtic, alien...). Supply "names": river, lake and hamlet name pools in that same culture.
      Set "hamlets" to "normal" unless the setting is empty wilderness ("sparse") or crowded heartland ("dense").
 
 3. PROPOSED CONSTRAINTS — add the geographic conditions that the description *implies* for the author's own
-   settlements but does not state, and list them in "proposed" with a one-line Chinese "rationale":
+   settlements but does not state, and list them in "proposed" with a one-line ${LANGN()} "rationale":
      a prosperous trading town needs "accessible" — wealth follows traffic, and a town walled in by mountains cannot trade
      a border fortress needs "defensible" — it exists to hold ground
      a mill town belongs on a river; a fishing village belongs on the coast
@@ -433,7 +643,7 @@ Rules:
 
 Description:
 """${desc.slice(0, 3000)}"""`;
-  return llmJSON(prompt, "规划 WorldSpec", item);
+  return llmJSON(prompt, L("规划 WorldSpec", "planning the WorldSpec"), item);
 }
 
 // Stage 2': propose relations once the map exists, so upstream/downstream and travel times are grounded in fact.
@@ -457,13 +667,13 @@ Rules:
   records a real dependency rather than forcing the settlements together. Only propose it where the world implies a
   dependency: a satellite village and its market town, a fortress and the capital it guards, a mine and its smelter.
 - Propose at most 4 relations. Fewer is better. Skip anything the map does not support.
-- Each needs a one-line Chinese "rationale" that cites the fact it rests on.
+- Each needs a one-line ${LANGN()} "rationale" that cites the fact it rests on.
 
 Facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"relations":[{"type":..., "a":"S1", "b":"S3", "days":4, "rationale":"..."}]}`;
-  const out = await llmJSON(prompt, "提议地缘关系", item);
+  const out = await llmJSON(prompt, L("提议地缘关系", "proposing relations"), item);
   const ids = new Set(W.spec.settlements.map(s => s.id));
   return (Array.isArray(out.relations) ? out.relations : []).filter(r => r && ids.has(r.a) && ids.has(r.b) && r.a !== r.b)
     .slice(0, 4).map(r => ({ ...r, source: "proposed" }));
@@ -523,14 +733,14 @@ ${history.length ? JSON.stringify(history) : "none"}
 Tools:
 ${TOOL_DOC}
 
-Reply with only JSON: {"analysis": "one or two sentences in Chinese explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
+Reply with only JSON: {"analysis": "one or two sentences in ${LANGN()} explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
 PRIORITY: checks with code "character" describe the world as a whole and outrank every other check. Fix them first,
 usually with set_climate or set_landform. Never trade one away for a town: a round whose edits break a character check
 that was passing is rolled back automatically. If a town's requirement can only be met by breaking the world's
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
 the character expectation.
 A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
-  const out = await llmJSON(prompt, "决定修正动作", item);
+  const out = await llmJSON(prompt, L("决定修正动作", "choosing repairs"), item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
 }
 
@@ -566,9 +776,9 @@ Ask: would a reader of the description recognise this map? A desert empire shoul
 big lakes; a frozen archipelago should be many cold islands; a river delta needs rivers and wetland.
 
 Reply with only JSON:
-{"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short Chinese sentences, most important first"],
+{"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short ${LANGN()} sentences, most important first"],
 ${final ? `"actions": []}` : `"add_character": [character expectations the map should meet but nobody declared, same shape as above:
-   {"metric": ..., "level": ... | "min"/"max" for islands, "why": Chinese}],
+   {"metric": ..., "level": ... | "min"/"max" for islands, "why": ${LANGN()}}],
  "actions": [{"tool": "<name>", "args": {...every argument the tool lists...}}] — tool calls that fix the world as a whole,
    from: set_landform, set_climate, raise_ridge, carve_basin, set_sea_level, set_river_threshold}
 
@@ -577,7 +787,7 @@ ${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve
 
 Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.`}
 Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
-  const out = await llmJSON(prompt, final ? "终审：对照描述" : "审阅：对照描述", item);
+  const out = await llmJSON(prompt, final ? L("终审：对照描述", "final review against the description") : L("审阅：对照描述", "review against the description"), item);
   return {
     fits: !!out.fits, score: clamp(Math.round(+out.score || 0), 0, 5), issues: (Array.isArray(out.issues) ? out.issues : []).map(String).slice(0, 6),
     add: final ? [] : normalizeCharacter(out.add_character, "critic"),
@@ -628,11 +838,11 @@ Rules:
   that conflict's checks unsatisfiable instead of guessing.
 
 Reply with only JSON:
-{"analysis": "one or two sentences in Chinese saying what you traded and why",
- "relaxations": [{"target": "S3", "item": "coast", "to": "on_river", "reason": "中文一句"}],
- "declare": [{"check_id": "spec.req.S3.coast", "reason": "中文一句"}]}
+{"analysis": "one or two sentences in ${LANGN()} saying what you traded and why",
+ "relaxations": [{"target": "S3", "item": "coast", "to": "on_river", "reason": "${L("中文一句", "one sentence")}"}],
+ "declare": [{"check_id": "spec.req.S3.coast", "reason": "${L("中文一句", "one sentence")}"}]}
 Use "to": null to drop an item outright. Leave either list empty when you have nothing to put in it.`;
-  const out = await llmJSON(prompt, "冲突让步决策", item);
+  const out = await llmJSON(prompt, L("冲突让步决策", "negotiating the conflict"), item);
   const ids = new Set(briefs.flatMap(b => b.checks)), targets = new Set(briefs.map(b => b.target));
   const actions = [];
   for (const r of Array.isArray(out.relaxations) ? out.relaxations : []) {
@@ -659,7 +869,7 @@ const CLAIM_DOC = `Claim objects (use entity ids):
 {"type":"upstream_of","a":"S2","b":"S1"}`;
 
 async function llmLore(facts, item) {
-  const prompt = `Write one short worldbuilding entry per settlement for a tabletop campaign region called "${facts.region}". Tone: quiet, uncanny, 1920s or low-fantasy depending on the names. Write in Chinese, 50-110 characters per entry.
+  const prompt = `Write one short worldbuilding entry per settlement for a tabletop campaign region called "${facts.region}". Tone: quiet, uncanny, 1920s or low-fantasy depending on the names. ${L("Write in Chinese, 50-110 characters per entry.", "Write in English, 30-70 words per entry.")}
 Use ONLY these map facts for geography. Refer to entities by writing [[ID]] in the text (e.g. [[S1]], [[R1]], [[M1]]) instead of their names.
 Every geographic statement in the text must also appear as a machine-checkable claim. Non-geographic flavour needs no claim.
 
@@ -669,7 +879,7 @@ Map facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"entries":[{"subject":"S1","title":"...","text":"...","claims":[...]}]}`;
-  const out = await llmJSON(prompt, "起草世界观", item);
+  const out = await llmJSON(prompt, L("起草世界观", "drafting lore"), item);
   return Array.isArray(out.entries) ? out.entries : Array.isArray(out) ? out : [];
 }
 async function llmReviseLore(entries, failures, facts, item, why) {
@@ -687,7 +897,7 @@ Current map facts:
 ${JSON.stringify(facts)}
 
 Reply with only JSON: {"entries":[{"subject":"S1","title":"...","text":"...","claims":[...]}]}`;
-  const out = await llmJSON(prompt, "修订世界观", item);
+  const out = await llmJSON(prompt, L("修订世界观", "revising lore"), item);
   return Array.isArray(out.entries) ? out.entries : [];
 }
 function normalizeEntries(list, W, idOffset) {
@@ -705,18 +915,18 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   let rep = verify(W, withLore ? activeLore() : null);
   const negotiated = new Set();          // one negotiation per distinct conflict core, never the same core twice
   for (let it = 1; it <= maxIter; it++) {
-    if (!rep.fails.length) { addTrace({ kind: "done", title: "全部检查通过", body: "验证器没有发现剩余违规，循环结束。" }); break; }
+    if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("验证器没有发现剩余违规，循环结束。", "The verifier finds nothing left; the loop ends.") }); break; }
     // Conflict resolution runs first: editing terrain towards a goal the solver has proved unreachable is wasted work.
     // It does not consume an iteration — after yielding, the same round still gets its repair step.
     if (fb === "structured") {
       const briefs = conflictBriefs(W, rep).filter(b => !negotiated.has(b.key));
       if (briefs.length) {
         briefs.forEach(b => negotiated.add(b.key));
-        const ni = addTrace({ kind: "conflict", title: `${title} 第 ${it} 轮 · 冲突消解`, before: rep.fails.length,
-          body: briefs.map(b => `${b.name}：${b.reason}`).join("；") + "。" });
+        const ni = addTrace({ kind: "conflict", title: L(`${title} 第 ${it} 轮 · 冲突消解`, `${title} round ${it} · conflicts`), before: rep.fails.length,
+          body: briefs.map(b => `${b.name}${L("：", ": ")}${b.reason}`).join(L("；", "; ")) + L("。", ".") });
         let dec = { analysis: "", actions: [] };
         try { dec = eng === "claude" ? await llmNegotiate(W, briefs, desc, ni) : scriptedNegotiate(W, briefs); }
-        catch (e) { ni.body += ` 让步决策失败：${e.message || e}`; }
+        catch (e) { ni.body += L(` 让步决策失败：${e.message || e}`, ` Negotiation failed: ${e.message || e}`); }
         if (dec.actions.length) {
           const r = applyActions(W, dec.actions);
           hist.push({ actions: dec.actions, results: r.results });
@@ -724,13 +934,13 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
           if (dec.analysis) ni.body = dec.analysis;
           ni.after = rep.fails.length;
           ni.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
-          pushSnap(W, `${title}${it}让步`, "iter");
+          pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
           await frame();
-          if (!rep.fails.length) { addTrace({ kind: "done", title: "全部检查通过", body: "让步之后没有剩余违规，循环结束。" }); break; }
-        } else { ni.after = rep.fails.length; ni.body += "（agent 选择不让步）"; renderTrace(); }
+          if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+        } else { ni.after = rep.fails.length; ni.body += L("（agent 选择不让步）", " (the agent chose not to yield)"); renderTrace(); }
       }
     }
-    const item = addTrace({ kind: "iter", title: `${title} 第 ${it} 轮`, before: rep.fails.length });
+    const item = addTrace({ kind: "iter", title: L(`${title} 第 ${it} 轮`, `${title} round ${it}`), before: rep.fails.length });
     let pol;
     try {
       if (eng === "claude") pol = await llmRepair(W, rep, hist, fb, item);
@@ -738,23 +948,23 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     } catch (e) {
       if (e && e.code === "cancelled") throw e;
       // a failed round ends the loop but keeps the map built so far; the run still gets its final review
-      item.after = rep.fails.length; item.body = `本轮修正决策失败（${e.message || e}），保留当前地图并结束修正循环。`; renderTrace();
+      item.after = rep.fails.length; item.body = L(`本轮修正决策失败（${e.message || e}），保留当前地图并结束修正循环。`, `This round's repair decision failed (${e.message || e}); keeping the current map and ending the loop.`); renderTrace();
       break;
     }
     item.body = pol.analysis;
-    if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + "（agent 没有给出新动作，循环结束）"; renderTrace(); break; }
+    if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + L("（agent 没有给出新动作，循环结束）", "(no new actions from the agent; the loop ends)"); renderTrace(); break; }
     const r = applyActions(W, pol.actions);
     // character outranks site constraints: a round that breaks a passing character check is undone
     const rep2 = verify(r.W, withLore ? activeLore() : null);
     const broken = rep.checks.filter(c => c.code === "character" && c.status === "pass").filter(c => rep2.fails.some(f => f.id === c.id));
     if (broken.length) {
-      const why = `本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`;
+      const why = L(`本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`, `this round would break the world's character (${broken.map(c => c.label.replace("Character: ", "")).join(", ")}), rolled back`);
       r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: why });
       hist.push({ actions: pol.actions, results: r.results });
       item.after = rep.fails.length; item.body += (item.body ? " " : "") + `（${why}）`;
       item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
       renderTrace(); await frame();
-      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: "达到迭代上限", body: `仍有 ${rep.fails.length} 项违规。` });
+      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
       continue;
     }
     hist.push({ actions: pol.actions, results: r.results });
@@ -762,9 +972,9 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     rep = rep2;
     item.after = rep.fails.length;
     item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
-    pushSnap(W, `${title}${it}`, "iter");
+    pushSnap(W, L(`${title}${it}`, `${title} ${it}`), "iter");
     await frame();
-    if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: "达到迭代上限", body: `仍有 ${rep.fails.length} 项违规。` });
+    if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
   }
   return W;
 }
@@ -776,63 +986,69 @@ async function runAgent(opts = {}) {
   // that carries a hand-written spec can be built. Say so instead of silently drawing something unrelated.
   const desc0 = $("#desc").value.trim();
   const isRandom = !!S.randomSpec && desc0 === S.randomDesc.trim();
-  const preset = PRESETS.find(p => p.text.trim() === desc0) || null;
-  if (!desc0) { $("#busy").textContent = "先写一句描述，或点「随机世界」。"; return; }
+  const preset = PRESETS.find(p => p.text.trim() === desc0 || p.text_en.trim() === desc0) || null;
+  if (!desc0) { $("#busy").textContent = L("先写一句描述，或点「随机世界」。", "Write a description first, or press Random world."); return; }
   if (eng !== "claude" && !isRandom && !preset) {
     $("#busy").textContent = $("#engClaude").disabled
-      ? "离线模式读不懂自由描述。填入 OpenRouter key 解锁模型，或点「随机世界」。"
-      : "离线模式读不懂自由描述：把「规划与修正由谁完成」切到 Claude，或点「随机世界」。";
+      ? L("离线模式读不懂自由描述。填入 OpenRouter key 解锁模型，或点「随机世界」。", "The offline engine cannot read free text. Paste an OpenRouter key to unlock the model, or press Random world.")
+      : L("离线模式读不懂自由描述：把「规划与修正由谁完成」切到 Claude，或点「随机世界」。", "The offline engine cannot read free text: switch the engine to Claude, or press Random world.");
     return;
   }
-  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; S.fit = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = "先生成世界观，再来这里修改。"; S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
-  setBusy(true, "生成中");
+  S.recordId = opts.boot ? null : Date.now().toString(36); S.recordT = Date.now(); S.recordDesc = desc0; S.recordEng = eng === "claude" ? $("#tier").value : "offline";
+  S.trajOverride = null;
+  S.ctl = new AbortController(); S.snaps = []; S.trace = []; S.lore = null; S.fit = null; bumpLore(); $("#loreLog").innerHTML = ""; $("#editResult").textContent = L("先生成世界观，再来这里修改。", "Generate lore first, then edit here."); S.llmCalls = 0; S.focus = null; S.t0 = performance.now();
+  setBusy(true, L("生成中", "Generating"));
   try {
     const desc = desc0;
     let raw;
     if (isRandom) {
       raw = S.randomSpec;
-      addTrace({ kind: "plan", title: "规划器（随机世界）", body: "使用随机抽取的 WorldSpec：地形模板、气候、尺度、山脉和聚落都由种子决定，规划阶段不调用模型。" });
+      addTrace({ kind: "plan", title: L("规划器（随机世界）", "Planner (random world)"), body: L("使用随机抽取的 WorldSpec：地形模板、气候、尺度、山脉和聚落都由种子决定，规划阶段不调用模型。", "Using a randomly drawn WorldSpec: landform, climate, scale, ranges and settlements all come from a seed; no model call.") });
     } else if (eng === "claude") {
-      const item = addTrace({ kind: "plan", title: "规划器", body: "把描述转成 WorldSpec（结构化规格）。" });
+      const item = addTrace({ kind: "plan", title: L("规划器", "Planner"), body: L("把描述转成 WorldSpec（结构化规格）。", "Turning the description into a WorldSpec.") });
       raw = resolveRelationNames(await llmPlan(desc, item));
     } else {
       raw = preset.spec;
-      addTrace({ kind: "plan", title: "规划器（离线）", body: "这段描述是自带 WorldSpec 的示例，离线模式直接使用写好的规格，不调用模型。" });
+      if (LANG === "en" && preset.names_en) {      // the English example names its places in English
+        const en = n => preset.names_en[n] || n;
+        raw = { ...raw, name: en(raw.name), mountains: raw.mountains.map(m => ({ ...m, name: en(m.name) })), settlements: raw.settlements.map(t => ({ ...t, name: en(t.name) })) };
+      }
+      addTrace({ kind: "plan", title: L("规划器（离线）", "Planner (offline)"), body: L("这段描述是自带 WorldSpec 的示例，离线模式直接使用写好的规格，不调用模型。", "This description is an example with a hand-written WorldSpec; the offline engine uses it directly, with no model call.") });
     }
     S.spec = normalizeSpec(raw);
     $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-    { const km = (SCALES[S.spec.scale] || SCALES.region).km * N;
-      $("#scaleHint").textContent = `图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`; }
+    updateScaleHint();
     fillEditSelects(); syncStyleControls();
     await frame();
     let W = derive(S.spec, initParams(S.spec));
     if (eng === "claude") {
-      const it2 = addTrace({ kind: "plan", title: "地缘关系提议", body: "地图已生成，让 agent 根据真实水系、路网和实测路程提议关系约束。" });
+      const it2 = addTrace({ kind: "plan", title: L("地缘关系提议", "Relation proposals"), body: L("地图已生成，让 agent 根据真实水系、路网和实测路程提议关系约束。", "The map exists; the agent proposes relations from the real rivers, roads and measured travel times.") });
       try {
         const rels = await llmRelations(W, it2);
         if (rels.length) {
           S.spec = normalizeSpec({ ...S.spec, settlements: S.spec.settlements.map(s => ({ ...s })), relations: rels });
           W = derive(S.spec, W.P);
-          it2.body = rels.map(r => `${nameOf(W, r.a)} ${REL_ZH[r.type]}${r.type === "within_days_of" ? " " + r.days + " 天" : ""} ${nameOf(W, r.b)}：${r.rationale || ""}`).join("；");
+          it2.body = rels.map(r => L(`${nameOf(W, r.a)} ${REL_ZH[r.type]}${r.type === "within_days_of" ? " " + r.days + " 天" : ""} ${nameOf(W, r.b)}：${r.rationale || ""}`,
+            `${nameOf(W, r.a)} ${r.type === "within_days_of" ? `within ${r.days} days of` : "downstream of"} ${nameOf(W, r.b)}: ${r.rationale || ""}`)).join(L("；", "; "));
           $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-        } else it2.body = "agent 认为这张图不支持任何关系约束。";
-      } catch (e) { it2.body = "关系提议失败：" + (e.message || e); }
+        } else it2.body = L("agent 认为这张图不支持任何关系约束。", "The agent found no relation this map supports.");
+      } catch (e) { it2.body = L("关系提议失败：", "Relation proposals failed: ") + (e.message || e); }
     }
     const rep0 = verify(W, null);
-    addTrace({ kind: "build", title: "生成器", body: `按默认参数生成：噪声地形、噪声湿度、不填洼的 D8 水文。验证器发现 ${rep0.fails.length} 项违规。` });
-    pushSnap(W, "初始", "init");
+    addTrace({ kind: "build", title: L("生成器", "Generator"), body: L(`按默认参数生成：噪声地形、噪声湿度、不填洼的 D8 水文。验证器发现 ${rep0.fails.length} 项违规。`, `Built with default parameters: noise terrain, noise moisture, unfilled D8 hydrology. The verifier finds ${rep0.fails.length} violations.`) });
+    pushSnap(W, L("初始", "Initial"), "init");
     if (eng === "claude" && !isRandom && fb !== "none") {
-      const ci = addTrace({ kind: "plan", title: "地图审阅", body: "把整张图的统计和原始描述对照，检查世界的整体特征。" });
+      const ci = addTrace({ kind: "plan", title: L("地图审阅", "Map review"), body: L("把整张图的统计和原始描述对照，检查世界的整体特征。", "Comparing whole-map statistics with the description to check the world's character.") });
       try {
         const cr = await llmCritique(W, desc, "pre", ci);
-        const notes = [`吻合度 ${cr.score}/5`].concat(cr.issues);
+        const notes = [L(`吻合度 ${cr.score}/5`, `fit ${cr.score}/5`)].concat(cr.issues);
         if (cr.add.length) {
           const have = new Set((S.spec.character || []).map(c => c.metric));
           const add = cr.add.filter(c => !have.has(c.metric));
           if (add.length) {
             S.spec = normalizeSpec({ ...S.spec, character: [...(S.spec.character || []), ...add] });
             W = derive(S.spec, W.P);
-            notes.push("补充整体特征：" + add.map(charLabel).join("、"));
+            notes.push(L("补充整体特征：", "added character: ") + add.map(charLabel).join(L("、", ", ")));
             $("#specView").textContent = JSON.stringify(S.spec, null, 2);
           }
         }
@@ -840,24 +1056,24 @@ async function runAgent(opts = {}) {
           const r = applyActions(W, cr.actions); W = r.W;
           ci.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
         }
-        ci.body = notes.join("；") + "。";
-        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, "审阅调整", "iter"); }
+        ci.body = notes.join(L("；", "; ")) + L("。", ".");
+        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
         renderTrace();
-      } catch (e) { ci.body = "审阅失败：" + (e.message || e); }
+      } catch (e) { ci.body = L("审阅失败：", "Review failed: ") + (e.message || e); }
     }
-    if (fb === "none") addTrace({ kind: "done", title: "无反馈条件", body: "只生成一次，不进入修正循环。" });
-    else W = await repairLoop(W, { fb, maxIter, withLore: false, eng, title: "修正", desc });
+    if (fb === "none") addTrace({ kind: "done", title: L("无反馈条件", "No-feedback condition"), body: L("只生成一次，不进入修正循环。", "Generate once, no repair loop.") });
+    else W = await repairLoop(W, { fb, maxIter, withLore: false, eng, title: L("修正", "Repair"), desc });
     if (eng === "claude" && !isRandom && fb !== "none") {
-      const fi = addTrace({ kind: "plan", title: "终审", body: "修正结束后再把地图和描述对照一次，只评分不改动。" });
+      const fi = addTrace({ kind: "plan", title: L("终审", "Final review"), body: L("修正结束后再把地图和描述对照一次，只评分不改动。", "After repair, compare the map with the description once more; score only, no changes.") });
       try {
         const cr = await llmCritique(W, desc, "final", fi);
         S.fit = cr.score;
-        fi.body = `吻合度 ${cr.score}/5${cr.fits ? "，符合描述" : "，与描述仍有出入"}。` + (cr.issues.length ? cr.issues.join("；") + "。" : "");
+        fi.body = L(`吻合度 ${cr.score}/5${cr.fits ? "，符合描述" : "，与描述仍有出入"}。`, `Fit ${cr.score}/5${cr.fits ? ", matches the description" : ", still differs from the description"}. `) + (cr.issues.length ? cr.issues.join(L("；", "; ")) + L("。", ".") : "");
         renderTrace(); renderMetrics();
-      } catch (e) { fi.body = "终审失败：" + (e.message || e); }
+      } catch (e) { fi.body = L("终审失败：", "Final review failed: ") + (e.message || e); }
     }
   } catch (e) {
-    addTrace({ kind: "error", title: "中断", body: e.message || String(e) });
+    addTrace({ kind: "error", title: L("中断", "Interrupted"), body: e.message || String(e) });
   } finally {
     S.elapsed = (performance.now() - S.t0) / 1000;
     setBusy(false); refreshAll();
@@ -878,7 +1094,7 @@ async function genLore() {
   const sn = last(); if (!sn || S.running) return;
   const eng = engine();
   S.ctl = new AbortController();
-  setBusy(true, "写设定中");
+  setBusy(true, L("写设定中", "Writing lore"));
   const log = [];
   const W = sn.W;
   try {
@@ -886,36 +1102,36 @@ async function genLore() {
     if (eng === "claude") {
       const facts = mapFacts(W);
       const item = { kind: "lore" }; S.loreItem = item;
-      log.push("通过地图查询工具取得聚落、河流、山脉和两两路程等事实，交给 Claude 起草。");
+      log.push(L("通过地图查询工具取得聚落、河流、山脉和两两路程等事实，交给 Claude 起草。", "Map query tools gather settlements, rivers, ranges and pairwise travel times; Claude drafts from them."));
       renderLoreLog(log, item);
       let entries = normalizeEntries(await llmLore(facts, item), W, 0);
       S.lore = entries; S.lore.forEach(e => e.claims.forEach(c => c.status = null)); claimStatuses(W);
       const bad = entries.filter(e => e.claims.some(c => c.status !== "ok"));
       const nClaims = entries.reduce((a, e) => a + e.claims.length, 0);
-      log.push(`起草完成：${entries.length} 条设定，${nClaims} 条地理声明，其中 ${countBad()} 条与地图不符。`);
+      log.push(L(`起草完成：${entries.length} 条设定，${nClaims} 条地理声明，其中 ${countBad()} 条与地图不符。`, `Draft done: ${entries.length} entries, ${nClaims} geographic claims, ${countBad()} of them contradict the map.`));
       renderLoreLog(log, item); renderLore();
       if (bad.length) {
         const failures = bad.flatMap(e => e.claims.filter(c => c.status !== "ok").map(c => ({ entry: e.subject, claim: c, map_says: c.result.measured })));
         const fixed = normalizeEntries(await llmReviseLore(bad.map(({ subject, title, text, claims }) => ({ subject, title, text, claims })), failures, facts, item, "contradict the map"), W, 0);
         mergeEntries(fixed); S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-        log.push(`修订 ${fixed.length} 条后，还剩 ${countBad()} 条声明不符。`);
+        log.push(L(`修订 ${fixed.length} 条后，还剩 ${countBad()} 条声明不符。`, `After revising ${fixed.length} entries, ${countBad()} claims still contradict the map.`));
       }
     } else {
       S.lore = scriptedLore(W, "draft");
       S.lore.forEach(e => e.claims.forEach(c => c.status = null)); claimStatuses(W);
-      log.push("起草（离线模板）：路程按两地直线距离估算，没有调用路径工具。");
-      log.push(`核查：${S.lore.reduce((a, e) => a + e.claims.length, 0)} 条地理声明，${countBad()} 条与地图不符。`);
+      log.push(L("起草（离线模板）：路程按两地直线距离估算，没有调用路径工具。", "Draft (offline template): travel times guessed from straight-line distance, without the route tool."));
+      log.push(L(`核查：${S.lore.reduce((a, e) => a + e.claims.length, 0)} 条地理声明，${countBad()} 条与地图不符。`, `Check: ${S.lore.reduce((a, e) => a + e.claims.length, 0)} geographic claims, ${countBad()} contradict the map.`));
       renderLore(); renderLoreLog(log); await frame();
       const bad = S.lore.filter(e => e.claims.some(c => c.status !== "ok"));
       if (bad.length) {
         for (const e of bad) { const k = S.lore.indexOf(e); const s = S.spec.settlements.find(q => q.id === e.subject); S.lore[k] = scriptedLoreEntry(W, s, k, "final"); }
         S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-        log.push(`修订：对不符的 ${bad.length} 条设定改用路径工具的实测路程重写，剩余不符 ${countBad()} 条。`);
-      } else log.push("没有需要修订的声明。");
+        log.push(L(`修订：对不符的 ${bad.length} 条设定改用路径工具的实测路程重写，剩余不符 ${countBad()} 条。`, `Revision: rewrote ${bad.length} entries with route-tool travel times; ${countBad()} still contradict.`));
+      } else log.push(L("没有需要修订的声明。", "Nothing needs revising."));
     }
-    log.push("这些声明现在也是地图的约束：之后编辑地图时，被影响的设定会被标记为过期。");
+    log.push(L("这些声明现在也是地图的约束：之后编辑地图时，被影响的设定会被标记为过期。", "These claims now constrain the map too: later edits mark affected entries as stale."));
   } catch (e) {
-    log.push("中断：" + (e.message || e));
+    log.push(L("中断：", "Interrupted: ") + (e.message || e));
   } finally {
     bumpLore(); renderLoreLog(log); setBusy(false); refreshAll();
   }
@@ -934,35 +1150,36 @@ function renderLoreLog(log, item) {
 async function rewriteStale() {
   const sn = last(); if (!sn || !S.lore || S.running) return;
   const W = sn.W; const bad = S.lore.filter(e => e.claims.some(c => c.status !== "ok"));
-  if (!bad.length) { $("#editResult").textContent = "没有过期或不符的设定。"; return; }
-  S.ctl = new AbortController(); setBusy(true, "重写设定中");
+  if (!bad.length) { $("#editResult").textContent = L("没有过期或不符的设定。", "No stale or contradicting entries."); return; }
+  S.ctl = new AbortController(); setBusy(true, L("重写设定中", "Rewriting lore"));
   try {
     if (engine() === "claude") {
       const facts = mapFacts(W);
       const failures = bad.flatMap(e => e.claims.filter(c => c.status !== "ok").map(c => ({ entry: e.subject, claim: c, map_says: c.result.measured })));
       const item = {}; S.loreItem = null;
-      $("#editResult").textContent = "Claude 正在重写过期设定…";
+      $("#editResult").textContent = L("Claude 正在重写过期设定…", "Claude is rewriting stale entries…");
       const fixed = normalizeEntries(await llmReviseLore(bad.map(({ subject, title, text, claims }) => ({ subject, title, text, claims })), failures, facts, item, "became outdated after the map was edited"), W, 0);
       mergeEntries(fixed);
     } else {
       for (const e of bad) { const k = S.lore.indexOf(e); const s = S.spec.settlements.find(q => q.id === e.subject); S.lore[k] = scriptedLoreEntry(W, s, k, "final"); }
     }
     S.lore.forEach(e => e.claims.forEach(c => { if (c.status !== "ok") c.status = null; })); claimStatuses(W);
-    $("#editResult").textContent = `已重写 ${bad.length} 条设定，剩余不符 ${countBad()} 条。地图没有改动。`;
-    addTrace({ kind: "lore", title: "设定服从地图", body: `重写了 ${bad.length} 条过期设定。` });
-  } catch (e) { $("#editResult").textContent = "中断：" + (e.message || e); }
+    $("#editResult").textContent = L(`已重写 ${bad.length} 条设定，剩余不符 ${countBad()} 条。地图没有改动。`, `Rewrote ${bad.length} entries; ${countBad()} still contradict. The map is unchanged.`);
+    addTrace({ kind: "lore", title: L("设定服从地图", "Lore follows the map"), body: L(`重写了 ${bad.length} 条过期设定。`, `Rewrote ${bad.length} stale entries.`) });
+  } catch (e) { $("#editResult").textContent = L("中断：", "Interrupted: ") + (e.message || e); }
   finally { bumpLore(); setBusy(false); refreshAll(); }
 }
 async function obeyLore() {
   const sn = last(); if (!sn || !S.lore || S.running) return;
-  S.ctl = new AbortController(); setBusy(true, "修正地图中");
+  S.ctl = new AbortController(); setBusy(true, L("修正地图中", "Repairing the map"));
   try {
     const before = countBad();
-    const W = await repairLoop(sn.W, { fb: "structured", maxIter: 4, withLore: true, eng: engine(), title: "服从设定", desc: $("#desc").value.trim() });
+    const W = await repairLoop(sn.W, { fb: "structured", maxIter: 4, withLore: true, eng: engine(), title: L("服从设定", "Obey lore"), desc: $("#desc").value.trim() });
     claimStatuses(W);
     const left = countBad();
-    $("#editResult").textContent = `地图修正后，不符的设定从 ${before} 条变为 ${left} 条。${left ? "剩下的（路程、方位、地貌等）无法靠移动聚落解决，可以改用“重写过期设定”。" : ""}`;
-  } catch (e) { $("#editResult").textContent = "中断：" + (e.message || e); }
+    $("#editResult").textContent = L(`地图修正后，不符的设定从 ${before} 条变为 ${left} 条。${left ? "剩下的（路程、方位、地貌等）无法靠移动聚落解决，可以改用“重写过期设定”。" : ""}`,
+      `After repair, contradicting entries went from ${before} to ${left}.${left ? " The rest (travel times, directions, terrain) cannot be fixed by moving towns; try Rewrite stale lore." : ""}`);
+  } catch (e) { $("#editResult").textContent = L("中断：", "Interrupted: ") + (e.message || e); }
   finally { bumpLore(); setBusy(false); refreshAll(); }
 }
 
@@ -990,9 +1207,10 @@ function afterEdit(W0, r, label, what) {
   const staleAfter = (S.lore || []).reduce((a, e) => a + e.claims.filter(c => c.status === "stale").length, 0);
   pushSnap(W, label, "edit");
   const rep = reportOf(last());
-  const msg = `${r.results.map(x => x.msg).join("；")}。地形未改动的格子 ${(same / NN * 100).toFixed(1)}%，河道变化 ${riverDiff} 格；${S.lore ? `新增过期声明 ${Math.max(0, staleAfter - staleBefore)} 条；` : ""}当前违规 ${rep.fails.length} 项。`;
+  const msg = L(`${r.results.map(x => x.msg).join("；")}。地形未改动的格子 ${(same / NN * 100).toFixed(1)}%，河道变化 ${riverDiff} 格；${S.lore ? `新增过期声明 ${Math.max(0, staleAfter - staleBefore)} 条；` : ""}当前违规 ${rep.fails.length} 项。`,
+    `${r.results.map(x => x.msg).join("; ")}. ${(same / NN * 100).toFixed(1)}% of cells unchanged, ${riverDiff} river cells changed; ${S.lore ? `${Math.max(0, staleAfter - staleBefore)} claims went stale; ` : ""}${rep.fails.length} violations now.`);
   $("#editResult").textContent = msg;
-  addTrace({ kind: "edit", title: "用户编辑", body: `${what}。${msg}` });
+  addTrace({ kind: "edit", title: L("用户编辑", "User edit"), body: `${what}${L("。", ". ")}${msg}` });
 }
 // ---------- city style: re-plan the settlements under a different style profile ----------
 function syncStyleControls() {
@@ -1016,22 +1234,23 @@ function restyle() {
   S.snapGen = (S.snapGen || 0) + 1;              // part of the 3D and game-map cache keys, so both rebuild their cities
   S.city = null;
   $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-  const what = `${ERA_ZH[st.era]}·${PATTERN_ZH[st.street_pattern]}·街区 ${st.block_scale}×·楼高 ${st.building_height}×·城墙${{ auto: "按时代", always: "总是有", never: "不建" }[st.walls]}${newEra ? "（尺度与地标词表改用该时代的默认值）" : ""}`;
-  $("#editResult").textContent = `城市风格改为「${what}」，正在重新规划聚落…（地形、水系和所有地理约束都没有改动）`;
-  addTrace({ kind: "edit", title: "城市风格", body: `改为 ${what}。只重画城镇，验证器的检查结果不变。` });
+  const what = L(`${ERA_ZH[st.era]}·${PATTERN_ZH[st.street_pattern]}·街区 ${st.block_scale}×·楼高 ${st.building_height}×·城墙${{ auto: "按时代", always: "总是有", never: "不建" }[st.walls]}${newEra ? "（尺度与地标词表改用该时代的默认值）" : ""}`,
+    `${ERA_ZH[st.era]} · ${PATTERN_ZH[st.street_pattern]} · blocks ${st.block_scale}× · height ${st.building_height}× · walls ${{ auto: "by era", always: "always", never: "never" }[st.walls]}${newEra ? " (scale and landmarks reset to the era's defaults)" : ""}`);
+  $("#editResult").textContent = L(`城市风格改为「${what}」，正在重新规划聚落…（地形、水系和所有地理约束都没有改动）`, `City style set to "${what}"; re-planning towns… (terrain, water and every geographic constraint are unchanged)`);
+  addTrace({ kind: "edit", title: L("城市风格", "City style"), body: L(`改为 ${what}。只重画城镇，验证器的检查结果不变。`, `Now ${what}. Only towns are redrawn; the verifier's results do not change.`) });
   refreshAll();
 }
 function editMove() {
   const sn = last(); if (!sn || S.running) return;
   const id = $("#editS").value, reg = $("#editR").value;
   const r = applyActions(sn.W, [{ tool: "move_settlement", args: { id, targets: ["region:" + reg] } }]);
-  afterEdit(sn.W, r, "编辑", `把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`);
+  afterEdit(sn.W, r, L("编辑", "Edit"), L(`把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`, `Moved ${nameOf(sn.W, id)} to ${RG(reg)}`));
 }
 function editRidge() {
   const sn = last(); if (!sn || S.running) return;
   const reg = $("#ridgeR").value;
   const r = applyActions(sn.W, [{ tool: "raise_ridge", args: { region: reg, amount: 0.15 } }]);
-  afterEdit(sn.W, r, "编辑", `在${REGION_ZH[reg]}部隆起山脊`);
+  afterEdit(sn.W, r, L("编辑", "Edit"), L(`在${REGION_ZH[reg]}部隆起山脊`, `Raised a ridge in ${RG(reg)}`));
 }
 
 // ---------- rendering: side panels ----------
@@ -1044,16 +1263,17 @@ function renderScrub() {
 function renderMetrics() {
   const el = $("#metrics");
   if (!S.snaps.length) { el.innerHTML = ""; return; }
-  const traj = S.snaps.filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length);
+  const traj = S.trajOverride ? S.trajOverride.concat(S.snaps.slice(1).filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length))
+    : S.snaps.filter(s => s.kind !== "edit").map(s => reportOf(s).fails.length);
   const rep = reportOf(last());
   const declared = rep.checks.filter(c => c.status === "declared").length;
   el.innerHTML = `
-    <div><dt>违规数变化</dt><dd>${traj.join(" → ")}</dd></div>
-    <div><dt>检查通过率</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
-    <div><dt>声明无法满足</dt><dd>${declared}</dd></div>
-    <div><dt>Claude 调用</dt><dd>${S.llmCalls} 次</dd></div>
-    ${S.fit != null ? `<div><dt>描述吻合（终审）</dt><dd>${S.fit}/5</dd></div>` : ""}
-    <div><dt>用时</dt><dd>${S.elapsed ? S.elapsed.toFixed(1) + " s" : "…"}</dd></div>`;
+    <div><dt>${L("违规数变化", "Violations")}</dt><dd>${traj.join(" → ")}</dd></div>
+    <div><dt>${L("检查通过率", "Checks passed")}</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
+    <div><dt>${L("声明无法满足", "Declared unsatisfiable")}</dt><dd>${declared}</dd></div>
+    <div><dt>${L("Claude 调用", "Claude calls")}</dt><dd>${S.llmCalls}${L(" 次", "")}</dd></div>
+    ${S.fit != null ? `<div><dt>${L("描述吻合（终审）", "Fit to description")}</dt><dd>${S.fit}/5</dd></div>` : ""}
+    <div><dt>${L("用时", "Time")}</dt><dd>${S.elapsed ? S.elapsed.toFixed(1) + " s" : "…"}</dd></div>`;
 }
 function renderTrace() {
   const el = $("#trace");
@@ -1078,10 +1298,11 @@ function renderChecks() {
       <span class="ck-n">${n ?? ""}</span><span class="ck-cat">${esc(c.cat)}</span>
       <span class="ck-body"><span class="ck-label">${esc(c.label)}</span><span class="ck-meas">${esc(c.measured)}</span></span></li>`;
   el.innerHTML = `
-    <p class="ck-sum">${sn.label}：${rep.checks.length} 项检查，<b class="f">${fails.length} 项违规</b>${declared.length ? `，${declared.length} 项已声明无法满足` : ""}${traded.length ? `，${traded.length} 项已让步` : ""}</p>
+    <p class="ck-sum">${L(`${sn.label}：${rep.checks.length} 项检查，<b class="f">${fails.length} 项违规</b>${declared.length ? `，${declared.length} 项已声明无法满足` : ""}${traded.length ? `，${traded.length} 项已让步` : ""}`,
+      `${sn.label}: ${rep.checks.length} checks, <b class="f">${fails.length} violations</b>${declared.length ? `, ${declared.length} declared unsatisfiable` : ""}${traded.length ? `, ${traded.length} traded` : ""}`)}</p>
     <ol class="ck-list">${fails.map((c, k) => item(c, k + 1)).join("")}${declared.map(c => item(c, "×")).join("")}</ol>
-    ${traded.length ? `<details open><summary>${traded.length} 项让步（约束被换成更弱的，或被放弃）</summary><ol class="ck-list">${traded.map(c => item(c, "~")).join("")}</ol></details>` : ""}
-    <details><summary>${pass.length} 项通过</summary><ol class="ck-list">${pass.map(c => item(c, "")).join("")}</ol></details>`;
+    ${traded.length ? `<details open><summary>${L(`${traded.length} 项让步（约束被换成更弱的，或被放弃）`, `${traded.length} traded (swapped for a weaker constraint, or dropped)`)}</summary><ol class="ck-list">${traded.map(c => item(c, "~")).join("")}</ol></details>` : ""}
+    <details><summary>${L(`${pass.length} 项通过`, `${pass.length} passed`)}</summary><ol class="ck-list">${pass.map(c => item(c, "")).join("")}</ol></details>`;
   el.querySelectorAll(".ck").forEach(li => {
     const f = () => { S.focus = S.focus === li.dataset.id ? null : li.dataset.id; renderChecks(); renderMap(); };
     li.onclick = f; li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); f(); } };
@@ -1089,7 +1310,7 @@ function renderChecks() {
 }
 function renderLore() {
   const el = $("#lore");
-  if (!S.lore) { el.innerHTML = `<p class="empty">生成并修正地图后，点“生成世界观”。每条设定里的地理描述都会被逐条对照地图核查。</p>`; return; }
+  if (!S.lore) { el.innerHTML = `<p class="empty">${L("生成并修正地图后，点“生成世界观”。每条设定里的地理描述都会被逐条对照地图核查。", "After the map is built, press Generate lore. Every geographic statement in it is checked against the map.")}</p>`; return; }
   const W = last().W;
   el.innerHTML = S.lore.map(e => `
     <article class="card" data-subject="${esc(e.subject)}">
@@ -1098,7 +1319,7 @@ function renderLore() {
       <ul class="claims">${e.claims.map(c => {
         const r = c.result || checkClaim(W, c);
         const st = c.status || (r.ok ? "ok" : "false");
-        const tag = st === "ok" ? "符合" : st === "stale" ? "过期" : "不符";
+        const tag = st === "ok" ? L("符合", "holds") : st === "stale" ? L("过期", "stale") : L("不符", "false");
         return `<li class="cl ${st}"><span class="cl-tag">${tag}</span><span>${esc(r.label)}${st !== "ok" ? `<em>${esc(r.measured)}</em>` : ""}</span></li>`;
       }).join("")}</ul>
     </article>`).join("");
@@ -1250,29 +1471,30 @@ function renderCity() {
   const sn = curSnap(), tabs = $("#cityTabs"), cv = $("#cityCanvas");
   if (!sn) { tabs.innerHTML = ""; return; }
   const W = sn.W, list = W.spec.settlements;
-  if (!list.length) { tabs.innerHTML = `<p class="empty">这个区域没有聚落。</p>`; return; }
+  if (!list.length) { tabs.innerHTML = `<p class="empty">${L("这个区域没有聚落。", "This region has no settlements.")}</p>`; return; }
   if (!list.some(s => s.id === S.city)) S.city = (list.find(s => s.type === "city") || list.find(s => s.type === "port") || list[0]).id;
   tabs.innerHTML = list.map(s => `<button type="button" data-sid="${s.id}" aria-pressed="${s.id === S.city}">${esc(s.name)}<small>${TYPE_ZH[s.type]}</small></button>`).join("");
   tabs.querySelectorAll("button").forEach(b => b.onclick = () => selectCity(b.dataset.sid));
   const s = list.find(q => q.id === S.city);
   $("#cityTitle").textContent = s.name;
   const reg = REGION_ZH[regionOf(...W.P.pos[s.id])];
-  if (!plansReady(W)) { $("#citySub").textContent = "正在生成城市规划…"; const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height); $("#cityLegend").innerHTML = ""; $("#cityLandmarks").innerHTML = ""; schedulePlans(W); return; }
+  if (!plansReady(W)) { $("#citySub").textContent = L("正在生成城市规划…", "Planning towns…"); const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height); $("#cityLegend").innerHTML = ""; $("#cityLandmarks").innerHTML = ""; schedulePlans(W); return; }
   const P = cityPlan(W, s);
   const f = settlementFacts(W, s);
-  $("#citySub").textContent = `${TYPE_ZH[s.type]}，位于${reg}部，${BIOME_ZH[f.biome]}${f.coastal ? "，临海" : ""}${f.river ? `，${nameOf(W, f.river)}流经` : ""}。图示范围约 ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km 见方，城镇按示意比例放大。风格：${ERA_ZH[P.style.era]}·${PATTERN_ZH[P.style.street_pattern]}·街区 ${P.style.block_scale}×·楼高 ${P.style.building_height}×${P.walls.length ? "·有城墙" : ""}。`;
+  $("#citySub").textContent = L(`${TYPE_ZH[s.type]}，位于${reg}部，${BIOME_ZH[f.biome]}${f.coastal ? "，临海" : ""}${f.river ? `，${nameOf(W, f.river)}流经` : ""}。图示范围约 ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km 见方，城镇按示意比例放大。风格：${ERA_ZH[P.style.era]}·${PATTERN_ZH[P.style.street_pattern]}·街区 ${P.style.block_scale}×·楼高 ${P.style.building_height}×${P.walls.length ? "·有城墙" : ""}。`,
+    `A ${TYPE_ZH[s.type]} in ${RG(regionOf(...W.P.pos[s.id]))}, ${BIOME_ZH[f.biome]}${f.coastal ? ", on the coast" : ""}${f.river ? `, on the ${nameOf(W, f.river)}` : ""}. The plan covers about ${Math.round(P.EXT * 2.7 * KM_PER_CELL)} km square; towns are drawn larger than life. Style: ${ERA_ZH[P.style.era]} · ${PATTERN_ZH[P.style.street_pattern]} · blocks ${P.style.block_scale}× · height ${P.style.building_height}×${P.walls.length ? " · walled" : ""}.`);
   drawCityDetail(W, P);
   const total = Object.values(P.zoneCells).reduce((a, b) => a + b, 0) || 1;
   const zones = Object.entries(P.zoneCells).sort((a, b) => b[1] - a[1]);
   $("#cityLegend").innerHTML = zones.map(([z, n]) => `<li data-zone="${z}"><span class="sw" style="background:${ZONES[z].block || ZONES[z].ground}"></span>${ZONES[z].zh}<b>${Math.round(n / total * 100)}%</b></li>`).join("")
-    + `<li data-zone="road"><span class="sw road"></span>主干道与环路</li>` + (P.walls.length ? `<li><span class="sw wall"></span>城墙</li>` : "");
+    + `<li data-zone="road"><span class="sw road"></span>${L("主干道与环路", "main roads and ring roads")}</li>` + (P.walls.length ? `<li><span class="sw wall"></span>${L("城墙", "town wall")}</li>` : "");
   $("#cityLegend").querySelectorAll("li[data-zone]").forEach(li => {
     li.onmouseenter = () => { S.cityZoneHl = li.dataset.zone === "road" ? null : li.dataset.zone; drawCityDetail(W, P); };
     li.onmouseleave = () => { S.cityZoneHl = null; drawCityDetail(W, P); };
   });
   const counts = {}; for (const L of P.landmarks) counts[L.kind] = (counts[L.kind] || 0) + 1;
   $("#cityLandmarks").innerHTML = Object.entries(counts).map(([k, n]) => `<li><span class="ic">${LANDMARK[k].icon}</span>${LANDMARK[k].zh}${n > 1 ? ` ×${n}` : ""}</li>`).join("")
-    + `<li class="meta">${P.blocks.length} 个街区，${P.buildings.length} 栋建筑</li>`;
+    + `<li class="meta">${L(`${P.blocks.length} 个街区，${P.buildings.length} 栋建筑`, `${P.blocks.length} blocks, ${P.buildings.length} buildings`)}</li>`;
 }
 function drawCityDetail(W, P) {
   const cv = $("#cityCanvas"), ctx = cv.getContext("2d"), SZ = cv.width;
@@ -1313,7 +1535,7 @@ function drawCityDetail(W, P) {
   halo(ctx, P.name, 16, 24, `700 24px ${SERIF}`, INK, "left");
   // scale bar
   const bar = 10 / KM_PER_CELL * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - bar, SZ - 24, bar, 4);
-  halo(ctx, "10 km（示意）", SZ - 24 - bar / 2, SZ - 36, `500 12px ${SANS}`, INK, "center");
+  halo(ctx, L("10 km（示意）", "10 km (schematic)"), SZ - 24 - bar / 2, SZ - 36, `500 12px ${SANS}`, INK, "center");
 }
 
 // ---------- rendering: map ----------
@@ -1442,7 +1664,7 @@ function render2D() {
   const cv = $("#map"), ctx = cv.getContext("2d"), SZ = cv.width, k = SZ / N;
   const sn = curSnap();
   ctx.clearRect(0, 0, SZ, SZ);
-  if (!sn) { ctx.fillStyle = "#dfe4de"; ctx.fillRect(0, 0, SZ, SZ); halo(ctx, "地图会显示在这里", SZ / 2, SZ / 2, `500 24px ${SERIF}`, INK, "center"); return; }
+  if (!sn) { ctx.fillStyle = "#dfe4de"; ctx.fillRect(0, 0, SZ, SZ); halo(ctx, L("地图会显示在这里", "The map appears here"), SZ / 2, SZ / 2, `500 24px ${SERIF}`, INK, "center"); return; }
   const W = sn.W;
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(baseImage(sn, "2d"), 0, 0, SZ, SZ);
   const c = i => [(i % N + 0.5) * k, (Math.floor(i / N) + 0.5) * k];
@@ -1522,4 +1744,4 @@ initControls();
 setViewMode(window.THREE ? "3d" : "2d");
 renderLore(); updateEditButtonsSafe();
 function updateEditButtonsSafe() { S.spec = S.spec || { settlements: [] }; updateEditButtons(); }
-(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent({ eng: "offline" }));   // the opening map never spends credit
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => runAgent({ eng: "offline", boot: true }));   // the opening map never spends credit

@@ -473,7 +473,7 @@ function mountainPeaks(W) {
 }
 function addLabel(cls, html, x, y, z, sid) {
   const el = document.createElement("div"); el.className = "l3 " + cls; el.innerHTML = html;
-  if (sid) { el.dataset.sid = sid; el.title = "点击查看城市详图"; el.onclick = () => { selectCity(sid); flyTo(sid); }; }
+  if (sid) { el.dataset.sid = sid; el.title = L("点击查看城市详图", "Click to see the city plan"); el.onclick = () => { selectCity(sid); flyTo(sid); }; }
   $("#labels3d").appendChild(el);
   V3.labels.push({ el, v: new THREE.Vector3(x, y, z) });
 }

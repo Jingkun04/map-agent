@@ -2,24 +2,24 @@
 // Plan radius in map cells (1 cell = 2 km). Settlements are drawn larger than life, as on a fantasy map.
 const PLAN_R = { city: 14, port: 12.5, town: 8.5, fortress: 6, village: 4.5 };
 const ZONES = {
-  core:   { zh: "商业区", block: "#efc58f", bld: "#b87a45", h: [2.8, 7.5] },
-  civic:  { zh: "行政文化区", block: "#dccbeb", bld: "#8a70ae", h: [2.2, 4] },
-  res:    { zh: "住宅区（密集）", block: "#f1d6bb", bld: "#bd8865", h: [1.5, 3.2] },
-  sub:    { zh: "住宅区（低密度）", block: "#dfe8c6", bld: "#b39a80", h: [0.8, 1.3] },
-  ind:    { zh: "工业区", block: "#d3d1de", bld: "#7f7d8b", h: [1.3, 2.4] },
-  harbor: { zh: "港区", block: "#c9dbe6", bld: "#6f8ba0", h: [1.1, 1.9] },
-  mil:    { zh: "军营", block: "#d8cfb2", bld: "#716955", h: [1.1, 1.8] },
-  park:   { zh: "公园绿地", ground: "#a6cd88" },
-  cem:    { zh: "墓地", ground: "#b8cca8" },
-  plaza:  { zh: "中心广场", ground: "#ece2cf" },
+  core:   { zh: "商业区", en: "commercial", block: "#efc58f", bld: "#b87a45", h: [2.8, 7.5] },
+  civic:  { zh: "行政文化区", en: "civic and cultural", block: "#dccbeb", bld: "#8a70ae", h: [2.2, 4] },
+  res:    { zh: "住宅区（密集）", en: "dense housing", block: "#f1d6bb", bld: "#bd8865", h: [1.5, 3.2] },
+  sub:    { zh: "住宅区（低密度）", en: "suburban housing", block: "#dfe8c6", bld: "#b39a80", h: [0.8, 1.3] },
+  ind:    { zh: "工业区", en: "industrial", block: "#d3d1de", bld: "#7f7d8b", h: [1.3, 2.4] },
+  harbor: { zh: "港区", en: "harbour", block: "#c9dbe6", bld: "#6f8ba0", h: [1.1, 1.9] },
+  mil:    { zh: "军营", en: "barracks", block: "#d8cfb2", bld: "#716955", h: [1.1, 1.8] },
+  park:   { zh: "公园绿地", en: "parks", ground: "#a6cd88" },
+  cem:    { zh: "墓地", en: "cemetery", ground: "#b8cca8" },
+  plaza:  { zh: "中心广场", en: "central plaza", ground: "#ece2cf" },
 };
 const STREET = "#dcd6ca", ROAD_FILL = "#fff3c9", ROAD_EDGE = "#b9a67f", WATER = "#86b6cc", WALL = "#6a6255";
 const LANDMARK = {
-  plaza: { zh: "中心广场", icon: "◇" }, cityhall: { zh: "市政厅", icon: "▣" }, cathedral: { zh: "大教堂", icon: "✝" },
-  church: { zh: "教堂", icon: "✝" }, chapel: { zh: "礼拜堂", icon: "✝" }, hospital: { zh: "医院", icon: "✚" },
-  clinic: { zh: "诊所", icon: "✚" }, market: { zh: "市场", icon: "◍" }, school: { zh: "学校", icon: "✎" },
-  station: { zh: "火车站", icon: "⊟" }, factory: { zh: "工厂", icon: "⌂" }, lighthouse: { zh: "灯塔", icon: "✦" },
-  keep: { zh: "城堡主楼", icon: "♜" }, library: { zh: "图书馆", icon: "▤" },
+  plaza: { zh: "中心广场", en: "central plaza", icon: "◇" }, cityhall: { zh: "市政厅", en: "city hall", icon: "▣" }, cathedral: { zh: "大教堂", en: "cathedral", icon: "✝" },
+  church: { zh: "教堂", en: "church", icon: "✝" }, chapel: { zh: "礼拜堂", en: "chapel", icon: "✝" }, hospital: { zh: "医院", en: "hospital", icon: "✚" },
+  clinic: { zh: "诊所", en: "clinic", icon: "✚" }, market: { zh: "市场", en: "market", icon: "◍" }, school: { zh: "学校", en: "school", icon: "✎" },
+  station: { zh: "火车站", en: "railway station", icon: "⊟" }, factory: { zh: "工厂", en: "factory", icon: "⌂" }, lighthouse: { zh: "灯塔", en: "lighthouse", icon: "✦" },
+  keep: { zh: "城堡主楼", en: "keep", icon: "♜" }, library: { zh: "图书馆", en: "library", icon: "▤" },
 };
 
 // ---------- style profile (proposed by the intent layer) -> city-planner knobs ----------
