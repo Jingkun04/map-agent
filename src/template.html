@@ -62,16 +62,15 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
 .examples button:hover { border-color: var(--ink); color: var(--ink); }
-#layoutBtn[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
-/* big-map layout: the map takes the whole first row and fills the viewport height; the panels move below it */
-@media (min-width: 1181px) {
-  body.wide .grid { grid-template-columns: 320px minmax(0, 1fr) 380px; }
-  body.wide .map-panel { grid-column: 1 / -1; grid-row: 1; }
-}
-body.wide .map-panel { order: -1; }
-body.wide #view3d { aspect-ratio: auto; height: max(480px, calc(100vh - 210px)); }
-body.wide #map, body.wide #gmCanvas { width: min(100%, max(480px, calc(100vh - 210px))); margin: 0 auto; }
-body.wide .canvasbox { background: #d7e0e0; }
+/* fullscreen: the map panel fills the screen; the square maps fit the box, the 3D view fills it */
+.fs-off { display: none; }
+.map-panel:fullscreen { display: flex; flex-direction: column; overflow: auto; border-radius: 0; padding: 16px 24px; }
+.map-panel:fullscreen .fs-on { display: none; }
+.map-panel:fullscreen .fs-off { display: inline; }
+.map-panel:fullscreen .canvasbox { flex: 1 1 auto; min-height: 320px; container-type: size; display: flex; align-items: center; justify-content: center; background: #d7e0e0; }
+.map-panel:fullscreen #map, .map-panel:fullscreen #gmCanvas { width: min(100cqw, 100cqh); }
+.map-panel:fullscreen #view3d { align-self: stretch; aspect-ratio: auto; height: 100%; }
+.map-panel:fullscreen #scrub { flex: none; }
 .city-panel { grid-column: 1 / span 2; }
 .city-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .city-tabs button { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; font-size: 13.5px; border-color: var(--line); font-family: var(--serif); font-weight: 600; }
@@ -130,8 +129,12 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 .layers label { display: inline-flex; gap: 4px; align-items: center; }
 .layers select { width: auto; padding: 3px 6px; }
 .canvasbox { position: relative; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: #dfe4de; }
-#map { display: block; width: 100%; height: auto; aspect-ratio: 1; }
-#map[hidden], #view3d[hidden], #ctl3d[hidden], #gamemap[hidden], #ctlgame[hidden] { display: none; }
+#map { display: block; width: 100%; height: auto; aspect-ratio: 1; touch-action: pan-x pan-y; }
+#map.zoomed { cursor: grab; touch-action: none; }
+#map.panning { cursor: grabbing; }
+#map[hidden], #view3d[hidden], #ctl2d[hidden], #ctl3d[hidden], #gamemap[hidden], #ctlgame[hidden] { display: none; }
+#ctl2d { display: inline-flex; gap: 10px; align-items: center; }
+#ctl2d button { padding: 4px 10px; font-size: 13px; }
 #gamemap { background: #0b0a08; }
 #gmCanvas { display: block; width: 100%; height: auto; aspect-ratio: 1; cursor: pointer; }
 #ctlgame { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -286,10 +289,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 
   <section class="panel map-panel" aria-label="地图">
     <div class="viewbar">
-      <button type="button" id="layoutBtn" aria-pressed="true" title="地图占满整行，设置和检查面板移到下方">大图布局</button>
+      <button type="button" id="fsBtn" title="让地图面板占满整个屏幕，按 Esc 退出"><span class="fs-on">全屏</span><span class="fs-off">退出全屏</span></button>
       <button type="button" id="savePng" title="把平面地图（含水系、聚落和标注）保存成 PNG 图片">保存平面图</button>
       <div class="seg" role="group" aria-label="视图"><button type="button" data-view="3d" aria-pressed="true">3D 沙盘</button><button type="button" data-view="2d" aria-pressed="false">平面地图</button><button type="button" data-view="game" aria-pressed="false">游戏地图</button></div>
       <span id="ctlgame" hidden><button type="button" id="gmAll">区域图</button><button type="button" id="gmZoom">聚焦城镇</button><label><input type="checkbox" id="gmFog" checked>探索迷雾</label><button type="button" id="gmRedraw">重新渲染</button><span class="hint" style="margin:0">点击传送点图标可放大该城镇，再点一次返回</span></span>
+      <span id="ctl2d" hidden><button type="button" id="mapReset">复位</button><span class="hint" style="margin:0">滚轮缩放，拖动平移，双击复位</span></span>
       <span id="ctl3d"><label>地形夸张 <input type="range" id="exag" min="0.5" max="3" step="0.1" value="1.6"></label><button type="button" id="camReset">斜视</button><button type="button" id="camTop">俯视</button><span class="hint" style="margin:0">拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去</span></span>
     </div>
     <div class="mapbar">

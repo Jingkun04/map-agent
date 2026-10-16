@@ -62,16 +62,15 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
 .examples button:hover { border-color: var(--ink); color: var(--ink); }
-#layoutBtn[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
-/* big-map layout: the map takes the whole first row and fills the viewport height; the panels move below it */
-@media (min-width: 1181px) {
-  body.wide .grid { grid-template-columns: 320px minmax(0, 1fr) 380px; }
-  body.wide .map-panel { grid-column: 1 / -1; grid-row: 1; }
-}
-body.wide .map-panel { order: -1; }
-body.wide #view3d { aspect-ratio: auto; height: max(480px, calc(100vh - 210px)); }
-body.wide #map, body.wide #gmCanvas { width: min(100%, max(480px, calc(100vh - 210px))); margin: 0 auto; }
-body.wide .canvasbox { background: #d7e0e0; }
+/* fullscreen: the map panel fills the screen; the square maps fit the box, the 3D view fills it */
+.fs-off { display: none; }
+.map-panel:fullscreen { display: flex; flex-direction: column; overflow: auto; border-radius: 0; padding: 16px 24px; }
+.map-panel:fullscreen .fs-on { display: none; }
+.map-panel:fullscreen .fs-off { display: inline; }
+.map-panel:fullscreen .canvasbox { flex: 1 1 auto; min-height: 320px; container-type: size; display: flex; align-items: center; justify-content: center; background: #d7e0e0; }
+.map-panel:fullscreen #map, .map-panel:fullscreen #gmCanvas { width: min(100cqw, 100cqh); }
+.map-panel:fullscreen #view3d { align-self: stretch; aspect-ratio: auto; height: 100%; }
+.map-panel:fullscreen #scrub { flex: none; }
 .city-panel { grid-column: 1 / span 2; }
 .city-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .city-tabs button { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; font-size: 13.5px; border-color: var(--line); font-family: var(--serif); font-weight: 600; }
@@ -130,8 +129,12 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 .layers label { display: inline-flex; gap: 4px; align-items: center; }
 .layers select { width: auto; padding: 3px 6px; }
 .canvasbox { position: relative; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: #dfe4de; }
-#map { display: block; width: 100%; height: auto; aspect-ratio: 1; }
-#map[hidden], #view3d[hidden], #ctl3d[hidden], #gamemap[hidden], #ctlgame[hidden] { display: none; }
+#map { display: block; width: 100%; height: auto; aspect-ratio: 1; touch-action: pan-x pan-y; }
+#map.zoomed { cursor: grab; touch-action: none; }
+#map.panning { cursor: grabbing; }
+#map[hidden], #view3d[hidden], #ctl2d[hidden], #ctl3d[hidden], #gamemap[hidden], #ctlgame[hidden] { display: none; }
+#ctl2d { display: inline-flex; gap: 10px; align-items: center; }
+#ctl2d button { padding: 4px 10px; font-size: 13px; }
 #gamemap { background: #0b0a08; }
 #gmCanvas { display: block; width: 100%; height: auto; aspect-ratio: 1; cursor: pointer; }
 #ctlgame { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -286,10 +289,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 
   <section class="panel map-panel" aria-label="地图">
     <div class="viewbar">
-      <button type="button" id="layoutBtn" aria-pressed="true" title="地图占满整行，设置和检查面板移到下方">大图布局</button>
+      <button type="button" id="fsBtn" title="让地图面板占满整个屏幕，按 Esc 退出"><span class="fs-on">全屏</span><span class="fs-off">退出全屏</span></button>
       <button type="button" id="savePng" title="把平面地图（含水系、聚落和标注）保存成 PNG 图片">保存平面图</button>
       <div class="seg" role="group" aria-label="视图"><button type="button" data-view="3d" aria-pressed="true">3D 沙盘</button><button type="button" data-view="2d" aria-pressed="false">平面地图</button><button type="button" data-view="game" aria-pressed="false">游戏地图</button></div>
       <span id="ctlgame" hidden><button type="button" id="gmAll">区域图</button><button type="button" id="gmZoom">聚焦城镇</button><label><input type="checkbox" id="gmFog" checked>探索迷雾</label><button type="button" id="gmRedraw">重新渲染</button><span class="hint" style="margin:0">点击传送点图标可放大该城镇，再点一次返回</span></span>
+      <span id="ctl2d" hidden><button type="button" id="mapReset">复位</button><span class="hint" style="margin:0">滚轮缩放，拖动平移，双击复位</span></span>
       <span id="ctl3d"><label>地形夸张 <input type="range" id="exag" min="0.5" max="3" step="0.1" value="1.6"></label><button type="button" id="camReset">斜视</button><button type="button" id="camTop">俯视</button><span class="hint" style="margin:0">拖动旋转，滚轮缩放，Shift 或右键拖动平移；点击城镇名可飞过去</span></span>
     </div>
     <div class="mapbar">
@@ -4219,15 +4223,13 @@ function initControls() {
   renderExamples();
   $("#desc").value = L(PRESETS[0].text, PRESETS[0].text_en);
   $("#randomBtn").onclick = () => { newRandomWorld(); runAgent({ eng: "offline" }); };
-  $("#layoutBtn").onclick = () => setWide(!document.body.classList.contains("wide"));
+  initFullscreen();
   $("#savePng").onclick = () => savePng();
   $("#histClear").onclick = () => { if (confirm(L("清空全部历史记录？", "Clear all history?"))) { S.recordId = null; S.hist = []; histDo(() => histStore.clear()); } };
   $("#histExport").onclick = () => exportHistory();
   $("#histImport").onclick = () => $("#histFile").click();
   $("#histFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importHistory(f); };
   renderHistory(); initHistory();
-  let wide = true; try { wide = localStorage.getItem("region-map-agent.layout") !== "side"; } catch {}
-  setWide(wide);
   fillRegionSelects();
   document.querySelectorAll('input[name="engine"]').forEach(el => el.onchange = () => { $("#tierWrap").hidden = engine() !== "claude"; });
   $("#run").onclick = () => runAgent();
@@ -4243,16 +4245,17 @@ function initControls() {
     const k = el.dataset.layer; if (k === "base") S.layers.base = el.value; else S.layers[k] = el.checked; renderMap();
   });
   const cv = $("#map");
+  init2DNav(cv);
   cv.addEventListener("mousemove", e => {
     const sn = curSnap(); if (!sn) return;
-    const r = cv.getBoundingClientRect(); const x = Math.floor((e.clientX - r.left) / r.width * N), y = Math.floor((e.clientY - r.top) / r.height * N);
+    const [fx, fy] = cellAt(cv, e), x = Math.floor(fx), y = Math.floor(fy);
     if (x < 0 || y < 0 || x >= N || y >= N) return;
     showCell(sn.W, x, y);
   });
   cv.addEventListener("mouseleave", () => { $("#readout").textContent = READOUT_HINT_FN(); });
   cv.addEventListener("click", e => {
-    const sn = curSnap(); if (!sn) return;
-    const r = cv.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width * N, y = (e.clientY - r.top) / r.height * N;
+    const sn = curSnap(); if (!sn || V2.dragged) return;
+    const [x, y] = cellAt(cv, e);
     let best = null, bd = 1e9;
     for (const s of sn.W.spec.settlements) { const [px, py] = sn.W.P.pos[s.id]; const d = Math.hypot(px + 0.5 - x, py + 0.5 - y); if (d < PLAN_R[s.type] * 1.1 && d < bd) { bd = d; best = s.id; } }
     if (best) selectCity(best);
@@ -4280,12 +4283,15 @@ function updateScaleHint() {
   $("#scaleHint").textContent = L(`图幅 ${km} × ${km} km，512 × 512 格（每格 ${km / N} km），北在上。${S.spec.landform ? `地形：${LANDFORM_ZH[S.spec.landform]}。` : ""}`,
     `Map ${km} × ${km} km, 512 × 512 cells (${km / N} km each), north up.${S.spec.landform ? ` Landform: ${LANDFORM_ZH[S.spec.landform]}.` : ""}`);
 }
-function setWide(on) {
-  document.body.classList.toggle("wide", on);
-  $("#layoutBtn").setAttribute("aria-pressed", String(on));
-  try { localStorage.setItem("region-map-agent.layout", on ? "wide" : "side"); } catch {}
-  if (V3 && V3.ok) { resize3D(); setView("oblique"); }
-  if (S.view === "game") renderGameMap(true);
+// fullscreen: the whole map panel (view switch, layers, map) takes the screen; the button swaps its label by CSS
+function initFullscreen() {
+  const panel = $(".map-panel"), btn = $("#fsBtn");
+  btn.hidden = !document.fullscreenEnabled;
+  btn.onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else panel.requestFullscreen().catch(() => {}); };
+  document.addEventListener("fullscreenchange", () => {
+    if (V3 && V3.ok) { resize3D(); setView("oblique"); }
+    if (S.view === "game") renderGameMap(true);
+  });
 }
 const EXAMPLES_ = [
   { label: ["沙漠绿洲帝国", "Desert oasis empire"], text: ["一个被沙漠包围的绿洲帝国", "An oasis empire surrounded by desert"] },
@@ -4314,6 +4320,7 @@ function setViewMode(v) {
   S.view = v;
   document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
   $("#map").hidden = v !== "2d";
+  $("#ctl2d").hidden = v !== "2d";
   $("#view3d").hidden = v !== "3d";
   $("#ctl3d").hidden = v !== "3d";
   $("#gamemap").hidden = v !== "game";
@@ -4354,7 +4361,8 @@ const I18N_EN = {
   "模型档位": "Model tier", "高级设置（实验用）": "Advanced (for experiments)", "验证器给 agent 的反馈": "Verifier feedback to the agent",
   "结构化违规报告": "Structured violation report", "只告诉通过或不通过": "Pass / fail only", "不反馈，只生成一次": "No feedback, generate once",
   "最多迭代轮数": "Max iterations", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
-  "地图": "Map", "大图布局": "Big map", "地图占满整行，设置和检查面板移到下方": "The map takes the full row; panels move below it",
+  "地图": "Map", "全屏": "Fullscreen", "退出全屏": "Exit fullscreen", "让地图面板占满整个屏幕，按 Esc 退出": "Fill the screen with the map panel; Esc exits",
+  "复位": "Reset", "滚轮缩放，拖动平移，双击复位": "Scroll to zoom, drag to pan, double-click to reset",
   "保存平面图": "Save flat map", "把平面地图（含水系、聚落和标注）保存成 PNG 图片": "Save the flat map (with water, towns and marks) as a PNG",
   "视图": "View", "3D 沙盘": "3D diorama", "平面地图": "Flat map", "游戏地图": "Game map",
   "区域图": "Region", "聚焦城镇": "Focus town", "探索迷雾": "Fog of war", "重新渲染": "Re-render",
@@ -4576,13 +4584,14 @@ async function importHistory(file) {
 // save the flat map as a PNG: whatever view is showing, draw the 2D map (with rivers, towns and marks) and export it
 function savePng() {
   const sn = curSnap(); if (!sn) return;
-  render2D();
+  render2D(V2_FULL);     // the whole map, whatever the zoom; toBlob copies the bitmap right away, so the view can come back
   const name = (S.spec && S.spec.name || "map").replace(/[\\/:*?"<>|]+/g, "_");
   $("#map").toBlob(b => {
     if (!b) return;
     const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${name}.png`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }, "image/png");
+  render2D();
 }
 
 // ---------- snapshots & trace ----------
@@ -5805,30 +5814,80 @@ function halo(ctx, text, x, y, font, color, align = "left") {
   ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(244,246,240,0.9)"; ctx.lineJoin = "round"; ctx.strokeText(text, x, y);
   ctx.fillStyle = color; ctx.fillText(text, x, y);
 }
+// 2D view: zoom z (1 = whole map) and the top-left corner (x, y) in cells. Text and marks stay at screen size.
+const V2 = { z: 1, x: 0, y: 0, dragged: false }, V2_FULL = { z: 1, x: 0, y: 0 }, V2_MAX = 6;
+function cellAt(cv, e, v = V2) {
+  const r = cv.getBoundingClientRect(), k = cv.width / N * v.z;
+  return [v.x + (e.clientX - r.left) / r.width * cv.width / k, v.y + (e.clientY - r.top) / r.height * cv.height / k];
+}
+function setView2D(z, x, y) {
+  V2.z = clamp(z, 1, V2_MAX);
+  const span = N / V2.z;
+  V2.x = clamp(x, 0, N - span); V2.y = clamp(y, 0, N - span);
+  $("#map").classList.toggle("zoomed", V2.z > 1);
+  if (!V2.raf) V2.raf = requestAnimationFrame(() => { V2.raf = 0; render2D(); });
+}
+// zoom by factor f keeping the cell under (cx, cy) where it is on screen
+const zoom2DAt = (f, cx, cy) => { const z = clamp(V2.z * f, 1, V2_MAX), t = V2.z / z; setView2D(z, cx - (cx - V2.x) * t, cy - (cy - V2.y) * t); };
+function init2DNav(cv) {
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const d = e.deltaY * (e.deltaMode === 1 ? 16 : 1) * (e.ctrlKey ? 0.01 : 0.0015);   // ctrlKey: a trackpad pinch
+    zoom2DAt(Math.exp(-d), ...cellAt(cv, e));
+  }, { passive: false });
+  // one pointer pans, two pinch; a press that moves more than a few pixels is a drag, not a click on a town
+  const ptrs = new Map();
+  let start = null;
+  const pinch = () => { const [a, b] = [...ptrs.values()]; return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), mid: { clientX: (a.clientX + b.clientX) / 2, clientY: (a.clientY + b.clientY) / 2 } }; };
+  cv.addEventListener("pointerdown", e => {
+    V2.dragged = false;
+    if (e.button !== 0 || (V2.z === 1 && e.pointerType === "mouse")) return;
+    ptrs.set(e.pointerId, e); cv.setPointerCapture(e.pointerId);
+    start = { x: e.clientX, y: e.clientY };
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const prev = ptrs.get(e.pointerId);
+    if (ptrs.size === 2) {
+      const before = pinch(); ptrs.set(e.pointerId, e); const now = pinch();
+      if (before.d > 0) zoom2DAt(now.d / before.d, ...cellAt(cv, now.mid));
+      V2.dragged = true; return;
+    }
+    ptrs.set(e.pointerId, e);
+    if (!V2.dragged && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 4) return;
+    V2.dragged = true; cv.classList.add("panning");
+    const r = cv.getBoundingClientRect(), per = N / V2.z / r.width;   // cells per CSS pixel
+    setView2D(V2.z, V2.x - (e.clientX - prev.clientX) * per, V2.y - (e.clientY - prev.clientY) * per);
+  });
+  const up = e => { ptrs.delete(e.pointerId); if (!ptrs.size) cv.classList.remove("panning"); };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+  cv.addEventListener("dblclick", () => setView2D(1, 0, 0));
+  $("#mapReset").onclick = () => setView2D(1, 0, 0);
+}
 function renderMap() {
   if (S.view === "3d" && V3 && V3.ok) { update3D(); return; }
   if (S.view === "game" && V3 && V3.ok) { renderGameMap(); return; }
   render2D();
 }
-function render2D() {
-  const cv = $("#map"), ctx = cv.getContext("2d"), SZ = cv.width, k = SZ / N;
+function render2D(view = V2) {
+  const cv = $("#map"), ctx = cv.getContext("2d"), SZ = cv.width, k = SZ / N * view.z, M = N * k;   // M: the whole map in canvas px
   const sn = curSnap();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, SZ, SZ);
   if (!sn) { ctx.fillStyle = "#dfe4de"; ctx.fillRect(0, 0, SZ, SZ); halo(ctx, L("地图会显示在这里", "The map appears here"), SZ / 2, SZ / 2, `500 24px ${SERIF}`, INK, "center"); return; }
   const W = sn.W;
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(baseImage(sn, "2d"), 0, 0, SZ, SZ);
+  // pan by translating only: positions scale with k, while line widths and text keep their screen size
+  ctx.translate(-view.x * k, -view.y * k);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(baseImage(sn, "2d"), 0, 0, M, M);
   const c = i => [(i % N + 0.5) * k, (Math.floor(i / N) + 0.5) * k];
   if (S.layers.grid) {
     ctx.save(); ctx.strokeStyle = "rgba(31,43,46,0.35)"; ctx.setLineDash([6, 6]); ctx.lineWidth = 1;
-    for (const t of [1, 2]) { ctx.beginPath(); ctx.moveTo(t * SZ / 3, 0); ctx.lineTo(t * SZ / 3, SZ); ctx.moveTo(0, t * SZ / 3); ctx.lineTo(SZ, t * SZ / 3); ctx.stroke(); }
+    for (const t of [1, 2]) { ctx.beginPath(); ctx.moveTo(t * M / 3, 0); ctx.lineTo(t * M / 3, M); ctx.moveTo(0, t * M / 3); ctx.lineTo(M, t * M / 3); ctx.stroke(); }
     ctx.restore();
-    REGIONS.forEach((r, j) => halo(ctx, REGION_ZH[r], (j % 3) * SZ / 3 + 8, Math.floor(j / 3) * SZ / 3 + 14, `500 12px ${SANS}`, "rgba(31,43,46,0.6)"));
-    // scale bar
-    const bkm = 100 * kmOf(W), px = bkm / kmOf(W) * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - px, SZ - 22, px, 4);
-    halo(ctx, `${bkm} km`, SZ - 24 - px / 2, SZ - 34, `500 12px ${SANS}`, INK, "center");
+    REGIONS.forEach((r, j) => halo(ctx, REGION_ZH[r], (j % 3) * M / 3 + 8, Math.floor(j / 3) * M / 3 + 14, `500 12px ${SANS}`, "rgba(31,43,46,0.6)"));
   }
   if (S.layers.rivers) {
-    drawRivers(ctx, W, k, 1, S.layers.base === "atlas" ? 1 : 0);
+    drawRivers(ctx, W, k, Math.sqrt(view.z), S.layers.base === "atlas" ? 1 : 0);
     for (const { r, i } of riverLabelCells(W)) { const [x, y] = c(i); halo(ctx, r.name, x + 6, y - 8, `italic 500 13px ${SERIF}`, S.highlight === r.id ? LORE : "#2f5c75"); }
     for (const l of W.hy.lakes.slice(0, 5)) halo(ctx, l.name, (l.cx + 0.5) * k, (l.cy + 0.5) * k, `italic 500 12px ${SERIF}`, "#2f5c75", "center");
     if (W.P.hydro !== "filled") { ctx.fillStyle = "#2f5c75"; for (const s of W.hy.sinks) { const [x, y] = c(s.i); ctx.beginPath(); ctx.arc(x, y, 2.4, 0, 7); ctx.fill(); } }
@@ -5884,6 +5943,13 @@ function render2D() {
     };
     rep.checks.filter(x => x.status === "declared").forEach(x => draw(x, "×", "declared"));
     rep.fails.forEach((x, j) => draw(x, j + 1, "fail"));
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (S.layers.grid) {
+    // scale bar in screen space, rounded to 1/2/5 × 10^n so it stays about 80–200 px at any zoom
+    const raw = 100 * kmOf(W) / view.z, p10 = 10 ** Math.floor(Math.log10(raw)), bkm = [5, 2, 1].map(m => m * p10).find(v => v <= raw);
+    const px = bkm / kmOf(W) * k; ctx.fillStyle = INK; ctx.fillRect(SZ - 24 - px, SZ - 22, px, 4);
+    halo(ctx, `${bkm} km`, SZ - 24 - px / 2, SZ - 34, `500 12px ${SANS}`, INK, "center");
   }
 }
 const SERIF = `"Noto Serif SC", "Songti SC", "STSong", serif`;
