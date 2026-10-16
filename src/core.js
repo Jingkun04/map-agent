@@ -1015,7 +1015,7 @@ function checkClaim(W, c) {
         return { ok, label: L(`${N_(c.s)}背靠${c.mountain ? N_(c.mountain) : "山脉"}`, `${N_(c.s)} lies under ${c.mountain ? N_(c.mountain) : "the mountains"}`), measured: ok ? L(`距山脉 ≤ ${14 * kmOf(W)} km`, `≤ ${14 * kmOf(W)} km from mountains`) : L(`距山脉 ${Math.round(W.dMount[i] * kmOf(W))} km`, `${Math.round(W.dMount[i] * kmOf(W))} km from mountains`) };
       }
       case "biome": { if (!has(c.s)) break; const b = W.biome[posIdx(W, c.s)]; return { ok: b === c.biome, label: L(`${N_(c.s)}周边是${BIOME_ZH[c.biome] || c.biome}`, `${N_(c.s)} is surrounded by ${BIOME_ZH[c.biome] || c.biome}`), measured: L(`实际为${BIOME_ZH[b]}`, `actually ${BIOME_ZH[b]}`) }; }
-      case "direction": { if (!has(c.a) || !has(c.b)) break; const d = dirOf(W, c.a, c.b); return { ok: dirIdx(d) === dirIdx(c.dir), label: L(`${N_(c.a)}在${N_(c.b)}的${c.dir}方`, `${N_(c.a)} lies ${c.dir} of ${N_(c.b)}`), measured: L(`实际在${d}方`, `actually ${d}`) }; }
+      case "direction": { if (!has(c.a) || !has(c.b)) break; const d = dirOf(W, c.a, c.b); return { ok: dirIdx(d) === dirIdx(c.dir), label: L(`${N_(c.a)}在${N_(c.b)}的${DIRS8[dirIdx(c.dir)] ?? c.dir}方`, `${N_(c.a)} lies ${DIRS8[dirIdx(c.dir)] ?? c.dir} of ${N_(c.b)}`), measured: L(`实际在${d}方`, `actually ${d}`) }; }
       case "travel_days": {
         if (!has(c.a) || !has(c.b)) break; const d = travelDays(W, c.a, c.b); const cl = +c.days;
         const ok = d != null && Math.abs(cl - d) <= Math.max(0.5, 0.15 * d);
@@ -1643,7 +1643,7 @@ function scriptedLoreEntry(W, s, k, mode) {
     const sep = W.spec.mountains.find(m => crossesMountain(W, s.id, no.o.id, m.id));
     if (sep) { bits.push(L(`两地之间隔着[[${sep.id}]]。`, `[[${sep.id}]] stands between them.`)); claims.push({ type: "separated_by", a: s.id, b: no.o.id, mountain: sep.id }); }
   }
-  return { id: "E" + (k + 1), subject: s.id, title: `${s.name}`, text: bits.join(L("", " ")), claims };
+  return { id: "E" + (k + 1), subject: s.id, title: `${s.name}`, text: bits.join(L("", " ")), claims, lang: LANG, scripted: mode };
 }
 function scriptedLore(W, mode) { return W.spec.settlements.map((s, k) => scriptedLoreEntry(W, s, k, mode)); }
 

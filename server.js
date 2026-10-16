@@ -8,6 +8,10 @@
 //   OPENROUTER_MODEL_DEFAULT=anthropic/claude-sonnet-5.5   (optional)
 //   OPENROUTER_MODEL_QUICK=anthropic/claude-haiku-5.5      (optional)
 //   PORT=8787                                              (optional)
+//   HISTORY_MAX=30                                         (optional: records kept in history/)
+//
+// It also keeps the page's generation history on disk, one JSON file per run in history/ (git-ignored), so records
+// survive a cleared browser or a different browser.
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -24,6 +28,8 @@ const MODELS = {
   quick: process.env.OPENROUTER_MODEL_QUICK || "anthropic/claude-haiku-5.5",
 };
 const PAGE = path.join(ROOT, "dist", "region-map-agent.html");
+const HIST_DIR = path.join(ROOT, "history");
+const HIST_MAX = Math.max(1, +process.env.HISTORY_MAX || 30);
 
 if (!KEY) { console.error("OPENROUTER_API_KEY is not set (put it in .env)"); process.exit(1); }
 
@@ -39,11 +45,47 @@ function sameOrigin(req) {
   return (!o || o === `http://${req.headers.host}`) && /^application\/json\b/.test(req.headers["content-type"] || "");
 }
 
-async function proxyLLM(req, res) {
+async function readBody(req, limit = 2e6) {
   let raw = "";
-  for await (const c of req) { raw += c; if (raw.length > 2e6) return send(res, 413, { error: "too_large" }); }
+  for await (const c of req) { raw += c; if (raw.length > limit) throw Object.assign(new Error("too_large"), { status: 413 }); }
+  try { return JSON.parse(raw); } catch { throw Object.assign(new Error("bad_json"), { status: 400 }); }
+}
+
+// ---------- history: one file per record, newest kept, the rest pruned ----------
+const histFile = id => /^[a-z0-9]{1,24}$/.test(id) ? path.join(HIST_DIR, id + ".json") : null;
+function histList() {
+  if (!fs.existsSync(HIST_DIR)) return [];
+  const out = [];
+  for (const f of fs.readdirSync(HIST_DIR)) {
+    if (!f.endsWith(".json")) continue;
+    try { out.push(JSON.parse(fs.readFileSync(path.join(HIST_DIR, f), "utf8"))); } catch { console.warn("[history] unreadable", f); }
+  }
+  return out.filter(r => r && r.id).sort((a, b) => (b.t || 0) - (a.t || 0));
+}
+function histPrune() {
+  for (const r of histList().slice(HIST_MAX)) { const f = histFile(r.id); if (f) fs.rmSync(f, { force: true }); }
+}
+async function history(req, res, id) {
+  if (req.method === "GET" && !id) return send(res, 200, histList().slice(0, HIST_MAX));
+  if (!sameOrigin(req)) return send(res, 403, { error: "forbidden" });
+  if (req.method === "DELETE" && !id) { fs.rmSync(HIST_DIR, { recursive: true, force: true }); return send(res, 200, { ok: true }); }
+  const f = histFile(id || "");
+  if (!f) return send(res, 400, { error: "bad_id" });
+  if (req.method === "DELETE") { fs.rmSync(f, { force: true }); return send(res, 200, { ok: true }); }
+  if (req.method === "PUT") {
+    const rec = await readBody(req, 8e6);
+    if (!rec || rec.id !== id || !rec.spec || !rec.P) return send(res, 400, { error: "bad_record" });
+    fs.mkdirSync(HIST_DIR, { recursive: true });
+    fs.writeFileSync(f, JSON.stringify(rec));
+    histPrune();
+    return send(res, 200, { ok: true });
+  }
+  send(res, 405, { error: "method" });
+}
+
+async function proxyLLM(req, res) {
   let body;
-  try { body = JSON.parse(raw); } catch { return send(res, 400, { error: "bad_json" }); }
+  try { body = await readBody(req); } catch (e) { return send(res, e.status || 400, { error: e.message }); }
   if (typeof body.prompt !== "string" || !body.prompt) return send(res, 400, { error: "no_prompt" });
   const model = MODELS[body.tier] || MODELS.default;
 
@@ -92,6 +134,8 @@ http.createServer(async (req, res) => {
     return send(res, 200, fs.readFileSync(PAGE), "text/html; charset=utf-8");
   }
   if (req.method === "GET" && url.pathname === "/api/llm/health") return send(res, 200, { ok: true, provider: "openrouter", models: MODELS });
+  const hm = url.pathname.match(/^\/api\/history(?:\/([^/]+))?$/);
+  if (hm) return history(req, res, hm[1]).catch(e => { console.error("[history]", e.message); if (!res.headersSent) send(res, e.status || 500, { error: e.message }); });
   if (req.method === "POST" && url.pathname === "/api/llm") {
     if (!sameOrigin(req)) return send(res, 403, { error: "forbidden" });
     return proxyLLM(req, res).catch(e => { console.error(e); if (!res.headersSent) send(res, 500, { error: "proxy_failed" }); });

@@ -105,13 +105,19 @@ python3 tests/screenshots.py 0
   them up before anything explicit, and `compareSpecs` scores extraction on the author's items only. `hamlets(W)` adds
   unverified background villages so the map reads as inhabited. All of these fields are optional, and a spec without them
   derives bit-for-bit the same world as before, so the benchmark and `results/` stay reproducible.
-- **History and export**: every finished run is saved in the browser's localStorage (last 10). A record keeps the
-  WorldSpec and generator params rather than the grids — a world is fully determined by those — plus the trace, lore and
-  a thumbnail, so loading re-derives the same map. "保存平面图" exports the flat map as a PNG.
+- **History and export**: every finished run is saved (last 30). A record keeps the WorldSpec and generator params
+  rather than the grids — a world is fully determined by those — plus the trace, lore and a thumbnail, so loading
+  re-derives the same map. Under `npm run serve` records are files in `history/` (git-ignored; `HISTORY_MAX` in `.env`
+  changes the cap), so a cleared or different browser loses nothing, and records left in a browser are moved there on
+  first load. On a static host they stay in localStorage. 导出 / 导入 moves them as one JSON file; "保存平面图" exports the
+  flat map as a PNG.
 - **Language**: the header button switches the page between Chinese and English. Static text is translated by exact
   match; program text goes through `L(zh, en)`; name tables (regions, biomes, landforms…) are swapped in place by
   `setLang`. In English mode the model writes its rationales and lore in English. Trace entries written before a switch
-  keep their language. Chinese output is byte-identical to before the switch was added.
+  keep their language. Chinese output is byte-identical to before the switch was added. Lore entries remember the
+  language they were written in; shown in the other language they are translated from that text by the model (one
+  call for all entries, cached per entry and dropped if the source changes), or rebuilt from the template when they
+  came from the offline writer. Translations are saved with the history record.
 - **Random worlds**: the "随机世界" button draws a whole spec from a seed (`randomSpec`), so the offline page shows the
   same range without a model.
 - **Scale**: the grid is always 512 × 512; `scale` sets 2 / 4 / 8 km per cell (region 1024 km, kingdom 2048 km,

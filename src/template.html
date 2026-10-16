@@ -57,6 +57,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 #histList .h-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #histList .h-btns { display: flex; flex-direction: column; gap: 3px; }
 #histList button, #histWrap button.small { font-size: 12px; padding: 2px 8px; }
+.hist-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 #histList .empty { display: block; border: 0; color: var(--muted); font-size: 13px; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .examples button { font-size: 12.5px; padding: 3px 9px; border-color: var(--line); border-radius: 999px; color: var(--muted); }
@@ -208,6 +209,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 .ck.pass.was-relaxed .ck-meas { display: block; }
 
 #loreLog { margin: 10px 0 14px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.lore-tr { grid-column: 1 / -1; margin: 0 0 4px; }
 .lore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .card { border: 1px solid var(--line); border-top: 3px solid var(--lore); background: var(--paper); border-radius: 4px; padding: 12px 14px; }
 .card h3 { font-size: 17px; margin-bottom: 6px; }
@@ -252,9 +254,10 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
     <div class="examples" id="examples" aria-label="示例描述"></div>
     <div class="btns"><button class="primary" id="run">生成世界</button><button type="button" id="randomBtn" title="抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型">随机世界</button><button id="stop" hidden>停止</button></div>
     <p id="busy" class="hint" aria-live="polite" style="margin:6px 0 0"></p>
-    <details id="histWrap"><summary>历史记录（最近 10 条，存在这个浏览器里）</summary>
+    <details id="histWrap"><summary id="histSummary">历史记录（最近 30 条，存在这个浏览器里）</summary>
       <ul id="histList"></ul>
-      <button type="button" id="histClear" class="small">清空历史</button>
+      <div class="hist-btns"><button type="button" id="histExport" class="small" title="把全部历史记录下载成一个 JSON 文件">导出</button><button type="button" id="histImport" class="small" title="从导出的 JSON 文件恢复历史记录">导入</button><button type="button" id="histClear" class="small">清空历史</button></div>
+      <input type="file" id="histFile" accept=".json,application/json" hidden>
     </details>
     <p class="hint" id="scaleHint" style="margin:6px 0 0"></p>
     <fieldset>

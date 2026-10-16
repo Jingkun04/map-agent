@@ -2,8 +2,13 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // yield to the browser between steps; a hidden tab never fires animation frames, so fall back to a timer there
-// (otherwise switching tabs mid-run would freeze the agent loop)
-const frame = () => new Promise(r => document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0)));
+// (otherwise switching tabs mid-run would freeze the agent loop). A tab hidden while already waiting never gets its
+// frame either, so a short timer races the frame and whichever comes first continues.
+const frame = () => new Promise(r => {
+  if (document.hidden) return setTimeout(r, 0);
+  let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } };
+  requestAnimationFrame(go); setTimeout(go, 120);
+});
 
 const S = {
   spec: null, snaps: [], cur: -1, trace: [], lore: null, sample: null, running: false, ctl: null,
@@ -200,8 +205,11 @@ function initControls() {
   $("#randomBtn").onclick = () => { newRandomWorld(); runAgent({ eng: "offline" }); };
   $("#layoutBtn").onclick = () => setWide(!document.body.classList.contains("wide"));
   $("#savePng").onclick = () => savePng();
-  $("#histClear").onclick = () => { if (confirm(L("清空全部历史记录？", "Clear all history?"))) { writeHistory([]); S.recordId = null; renderHistory(); } };
-  renderHistory();
+  $("#histClear").onclick = () => { if (confirm(L("清空全部历史记录？", "Clear all history?"))) { S.recordId = null; S.hist = []; histDo(() => histStore.clear()); } };
+  $("#histExport").onclick = () => exportHistory();
+  $("#histImport").onclick = () => $("#histFile").click();
+  $("#histFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importHistory(f); };
+  renderHistory(); initHistory();
   let wide = true; try { wide = localStorage.getItem("region-map-agent.layout") !== "side"; } catch {}
   setWide(wide);
   fillRegionSelects();
@@ -320,7 +328,7 @@ const I18N_EN = {
   "比如：北方冰海上的维京群岛": "e.g. Viking islands in a northern ice sea", "示例描述": "Example descriptions",
   "生成世界": "Generate world", "随机世界": "Random world", "停止": "Stop",
   "抽一个随机世界：地形模板、气候、尺度、山脉和聚落都由种子决定，不调用模型": "Draw a random world: landform, climate, scale, ranges and settlements all come from a seed, with no model call",
-  "历史记录（最近 10 条，存在这个浏览器里）": "History (last 10, stored in this browser)", "清空历史": "Clear history",
+  "历史记录（最近 30 条，存在这个浏览器里）": "History (last 30, stored in this browser)", "清空历史": "Clear history",
   "规划与修正由谁完成": "Who plans and repairs", "离线脚本策略": "Offline scripted policy",
   "即时运行，按违规类型套规则，用来模拟 agent": "Instant; applies rules per violation type to imitate an agent",
   "规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒":
@@ -359,6 +367,8 @@ const I18N_EN = {
   "世界观与地图联动": "Lore linked to the map",
   "设定作者只能通过地图查询工具获取地理事实，文中用实体引用指向地图对象。每条地理描述都会变成可核查的声明；把鼠标移到卡片或金色名字上，地图会标出对应位置。":
     "The lore writer gets geographic facts only through map query tools and refers to map objects by id. Every geographic statement becomes a checkable claim; hover a card or a gold name to see it on the map.",
+  "导出": "Export", "导入": "Import", "把全部历史记录下载成一个 JSON 文件": "Download all history records as one JSON file",
+  "从导出的 JSON 文件恢复历史记录": "Restore history from an exported JSON file",
   "生成世界观": "Generate lore", "点击查看城市详图": "Click to see the city plan", "切换界面语言 / Switch language": "切换界面语言 / Switch language",
 };
 function translateStatic() {
@@ -403,6 +413,7 @@ function setLang(lang) {
   $("#readout").textContent = READOUT_HINT_FN();
   if (S.snaps.length) refreshAll();
   if (S.view === "game") renderGameMap(true);
+  translateLore();
 }
 function renderExamples() {
   $("#examples").innerHTML = EXAMPLES.map((e, k) => `<button type="button" data-k="${k}" title="${esc(e.text)}">${esc(e.label)}</button>`).join("");
@@ -411,17 +422,62 @@ function renderExamples() {
 
 // ---------- history ----------
 // A world is fully determined by its WorldSpec and generator params, so a record stores those (a few KB) plus the
-// trace, lore and headline numbers, and loading re-derives the map. Records live in this browser's localStorage only.
-const HIST_KEY = "region-map-agent.history", HIST_MAX = 10;
-function readHistory() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } }
-function writeHistory(list) {
-  if (!list.length) { try { localStorage.removeItem(HIST_KEY); } catch {} return true; }
-  // a full quota drops the oldest records first, then thumbnails, rather than losing the newest run
-  for (let l = list.slice(0, HIST_MAX); l.length; l = l.slice(0, -1)) {
-    try { localStorage.setItem(HIST_KEY, JSON.stringify(l)); return true; } catch {}
-    try { localStorage.setItem(HIST_KEY, JSON.stringify(l.map(r => ({ ...r, thumb: null })))); return true; } catch {}
-  }
-  return false;
+// trace, lore and headline numbers, and loading re-derives the map. Where records live depends on the host: under
+// the local server (npm run serve) they are files in the project's history/ folder, so a cleared or different browser
+// loses nothing; on a static host they stay in this browser's localStorage. Export / import moves them as a JSON file.
+const HIST_KEY = "region-map-agent.history", HIST_MAX = 30;
+const localHist = {
+  kind: "browser",
+  read() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } },
+  write(list) {
+    if (!list.length) { try { localStorage.removeItem(HIST_KEY); } catch {} return true; }
+    // a full quota drops the oldest records first, then thumbnails, rather than losing the newest run
+    for (let l = list.slice(0, HIST_MAX); l.length; l = l.slice(0, -1)) {
+      try { localStorage.setItem(HIST_KEY, JSON.stringify(l)); return true; } catch {}
+      try { localStorage.setItem(HIST_KEY, JSON.stringify(l.map(r => ({ ...r, thumb: null })))); return true; } catch {}
+    }
+    return false;
+  },
+  async list() { return this.read(); },
+  async put(rec) { return this.write([rec, ...this.read().filter(r => r.id !== rec.id)]); },
+  async del(id) { return this.write(this.read().filter(r => r.id !== id)); },
+  async clear() { return this.write([]); },
+};
+const serverHist = {
+  kind: "server",
+  async call(method, id, body) {
+    const r = await fetch("api/history" + (id ? "/" + id : ""), { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  list() { return this.call("GET"); },
+  put(rec) { return this.call("PUT", rec.id, rec); },
+  del(id) { return this.call("DELETE", id); },
+  clear() { return this.call("DELETE"); },
+};
+let histStore = localHist;
+S.hist = [];
+// pick the store once at startup; records left in this browser from before are moved to disk the first time
+async function initHistory() {
+  try {
+    if (location.protocol === "file:") throw 0;
+    const list = await serverHist.list();
+    if (!Array.isArray(list)) throw 0;
+    histStore = serverHist; S.hist = list;
+    const stray = localHist.read().filter(r => r && r.id && !list.some(q => q.id === r.id));
+    if (stray.length) {
+      for (const r of stray) await serverHist.put(r);
+      S.hist = await serverHist.list();
+    }
+    localHist.write([]);
+  } catch { histStore = localHist; S.hist = localHist.read(); }
+  renderHistory();
+  if (S.hist.length) $("#histWrap").open = true;
+}
+async function histDo(op) {
+  try { await op(); S.hist = await histStore.list(); }
+  catch (e) { $("#busy").textContent = L(`历史记录保存失败（${e.message || e}）`, `Could not save history (${e.message || e})`); }
+  renderHistory();
 }
 function thumbOf(sn) {
   try {
@@ -441,14 +497,13 @@ function saveRecord() {
     traj: S.trajOverride || S.snaps.filter(x => x.kind !== "edit").map(x => reportOf(x).fails.length),
     fails: rep.fails.length, rate: rep.rate, calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
   };
-  const list = readHistory().filter(r => r.id !== rec.id);
-  list.unshift(rec);
-  writeHistory(list);
-  renderHistory();
+  S.hist = [rec, ...S.hist.filter(r => r.id !== rec.id)].slice(0, HIST_MAX);     // show it at once; the store catches up
+  renderHistory(); $("#histWrap").open = true;
+  histDo(() => histStore.put(rec));
 }
 function loadRecord(id) {
   if (S.running) return;
-  const rec = readHistory().find(r => r.id === id); if (!rec) return;
+  const rec = S.hist.find(r => r.id === id); if (!rec) return;
   S.ctl = new AbortController();
   S.spec = rec.spec; S.lore = rec.lore || null; bumpLore();
   S.trace = rec.trace || []; S.llmCalls = rec.calls || 0; S.fit = rec.fit ?? null; S.elapsed = rec.elapsed || 0; S.focus = null;
@@ -458,14 +513,17 @@ function loadRecord(id) {
   S.snaps = []; pushSnap(W, L("历史记录", "History"), "init");
   $("#desc").value = rec.desc || "";
   $("#specView").textContent = JSON.stringify(S.spec, null, 2);
-  updateScaleHint(); fillEditSelects(); syncStyleControls(); refreshAll(); renderHistory();
+  updateScaleHint(); fillEditSelects(); syncStyleControls(); refreshAll(); renderHistory(); translateLore();
   $(".map-panel").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function renderHistory() {
-  const list = readHistory(), el = $("#histList");
-  $("#histClear").hidden = !list.length;
+  const list = S.hist, el = $("#histList");
+  $("#histSummary").textContent = histStore.kind === "server"
+    ? L(`历史记录（最近 ${HIST_MAX} 条，存在项目的 history/ 文件夹）`, `History (last ${HIST_MAX}, saved in the project's history/ folder)`)
+    : L(`历史记录（最近 ${HIST_MAX} 条，存在这个浏览器里）`, `History (last ${HIST_MAX}, stored in this browser)`);
+  $("#histClear").hidden = $("#histExport").hidden = !list.length;
   if (!list.length) { el.innerHTML = `<li class="empty">${L("还没有记录。生成一张地图后会自动保存在这里。", "Nothing yet. Each map you generate is saved here.")}</li>`; return; }
-  const when = t => new Date(t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const when = t => new Date(t).toLocaleString(LANG === "en" ? "en-GB" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   el.innerHTML = list.map(r => `<li class="${r.id === S.recordId ? "cur" : ""}">
       ${r.thumb ? `<img src="${r.thumb}" alt="">` : `<span></span>`}
       <div><div class="h-name" title="${esc(r.desc)}">${esc(r.name)}</div>
@@ -474,7 +532,30 @@ function renderHistory() {
       <div class="h-btns"><button type="button" data-load="${r.id}">${L("载入", "Load")}</button><button type="button" data-del="${r.id}">${L("删除", "Delete")}</button></div>
     </li>`).join("");
   el.querySelectorAll("[data-load]").forEach(b => b.onclick = () => loadRecord(b.dataset.load));
-  el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { writeHistory(readHistory().filter(r => r.id !== b.dataset.del)); if (S.recordId === b.dataset.del) S.recordId = null; renderHistory(); });
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    const id = b.dataset.del; if (S.recordId === id) S.recordId = null;
+    S.hist = S.hist.filter(r => r.id !== id); renderHistory();
+    histDo(() => histStore.del(id));
+  });
+}
+function exportHistory() {
+  if (!S.hist.length) return;
+  const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: "region-map-agent", version: 1, records: S.hist })], { type: "application/json" }));
+  a.download = `region-map-history-${stamp}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+async function importHistory(file) {
+  let recs;
+  try { const j = JSON.parse(await file.text()); recs = Array.isArray(j) ? j : j.records; } catch { recs = null; }
+  recs = (Array.isArray(recs) ? recs : []).filter(r => r && typeof r.id === "string" && /^[a-z0-9]{1,24}$/.test(r.id) && r.spec && r.P);
+  if (!recs.length) { $("#busy").textContent = L("这个文件里没有可用的历史记录。", "No usable history records in that file."); return; }
+  const fresh = recs.filter(r => !S.hist.some(q => q.id === r.id));
+  await histDo(async () => { for (const r of fresh) await histStore.put(r); });
+  $("#busy").textContent = L(`导入了 ${fresh.length} 条记录${recs.length > fresh.length ? `（${recs.length - fresh.length} 条已存在）` : ""}；只保留最近 ${HIST_MAX} 条。`,
+    `Imported ${fresh.length} records${recs.length > fresh.length ? ` (${recs.length - fresh.length} already there)` : ""}; only the latest ${HIST_MAX} are kept.`);
+  $("#histWrap").open = true;
 }
 // save the flat map as a PNG: whatever view is showing, draw the 2D map (with rivers, towns and marks) and export it
 function savePng() {
@@ -904,7 +985,7 @@ function normalizeEntries(list, W, idOffset) {
   const ids = new Set(W.spec.settlements.map(s => s.id));
   return (list || []).filter(e => e && ids.has(String(e.subject))).map((e, k) => ({
     id: "E" + (idOffset + k + 1), subject: String(e.subject), title: String(e.title || nameOf(W, e.subject)).slice(0, 30),
-    text: String(e.text || "").slice(0, 400),
+    text: String(e.text || "").slice(0, 400), lang: LANG,
     claims: (Array.isArray(e.claims) ? e.claims : []).filter(c => c && typeof c.type === "string").slice(0, 10).map(c => { const o = {}; for (const [k2, v] of Object.entries(c)) o[k2] = k2 === "days" ? +v : String(v); return o; }),
   }));
 }
@@ -1084,7 +1165,7 @@ async function runAgent(opts = {}) {
 function claimStatuses(W) {
   for (const e of S.lore || []) for (const c of e.claims) {
     const r = checkClaim(W, c); const prev = c.status;
-    c.result = r;
+    c.result = { ...r, lang: LANG };
     if (r.ok) c.status = "ok";
     else if (prev === "ok" || prev === "stale") c.status = "stale";
     else c.status = "false";
@@ -1308,21 +1389,74 @@ function renderChecks() {
     li.onclick = f; li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); f(); } };
   });
 }
+// ---------- lore in the other language ----------
+// An entry keeps the language it was written in. Shown in the other language it is translated from that text (not
+// rewritten), so content and cultural detail stay the same; translations are cached per entry and dropped when the
+// source text changes. Template entries (offline) are simply rebuilt from the template in the new language.
+function loreView(e) {
+  if (!e.lang || e.lang === LANG) return { title: e.title, text: e.text, ready: true };
+  const t = e.tr && e.tr[LANG];
+  if (t && t.src === e.text) return { title: t.title, text: t.text, ready: true };
+  return { title: e.title, text: e.text, ready: false };
+}
+async function translateLore() {
+  if (!S.lore || S.loreTrBusy) return;
+  const todo = S.lore.filter(e => !loreView(e).ready);
+  if (!todo.length) return;
+  const sn = last(), lang = LANG;
+  // template entries: rebuild in this language from the same map
+  for (const e of todo.filter(e => e.scripted && sn)) {
+    const s = S.spec.settlements.find(q => q.id === e.subject); if (!s) continue;
+    const k = S.lore.indexOf(e), fresh = scriptedLoreEntry(sn.W, s, k, e.scripted);
+    e.tr = { ...(e.tr || {}), [lang]: { src: e.text, title: fresh.title, text: fresh.text } };
+  }
+  const llm = todo.filter(e => !e.scripted);
+  if (llm.length && S.sample) {
+    S.loreTrBusy = true; renderLore();
+    try {
+      if (!S.ctl) S.ctl = new AbortController();
+      const out = await llmTranslateLore(llm, lang);
+      for (const t of out) {
+        const e = llm.find(q => q.id === t.id); if (!e || !t.text) continue;
+        e.tr = { ...(e.tr || {}), [lang]: { src: e.text, title: String(t.title || e.title).slice(0, 40), text: String(t.text).slice(0, 600) } };
+      }
+    } catch (err) { console.warn("[lore] translation failed:", err.message || err); }
+    S.loreTrBusy = false;
+  }
+  if (LANG === lang) renderLore();
+  saveRecord();                       // keep the translations with the history record
+}
+async function llmTranslateLore(entries, lang) {
+  const to = lang === "en" ? "English" : "Simplified Chinese";
+  const prompt = `Translate these worldbuilding entries into ${to}. Translate faithfully from the given text: keep every fact,
+place, number and direction, and keep each [[ID]] reference exactly as written (do not replace it with a name). Keep the
+tone; render idioms and cultural details naturally in ${to} rather than word for word, but do not add or remove content.
+
+${JSON.stringify(entries.map(e => ({ id: e.id, title: e.title, text: e.text })))}
+
+Reply with only JSON: {"entries": [{"id": "E1", "title": "...", "text": "..."}]}`;
+  const out = await llmJSON(prompt, L("翻译世界观", "translating lore"), null);
+  return Array.isArray(out.entries) ? out.entries : [];
+}
 function renderLore() {
   const el = $("#lore");
   if (!S.lore) { el.innerHTML = `<p class="empty">${L("生成并修正地图后，点“生成世界观”。每条设定里的地理描述都会被逐条对照地图核查。", "After the map is built, press Generate lore. Every geographic statement in it is checked against the map.")}</p>`; return; }
   const W = last().W;
-  el.innerHTML = S.lore.map(e => `
+  const pending = S.lore.some(e => !loreView(e).ready);
+  el.innerHTML = (pending ? `<p class="hint lore-tr">${S.loreTrBusy ? L("正在把世界观翻译成中文…", "Translating the lore into English…")
+      : S.sample ? L("这些设定是用另一种语言写的，翻译失败，先显示原文。", "These entries were written in the other language and translation failed; showing the original.")
+      : L("这些设定是用英文写的；翻译需要模型（Claude 或 OpenRouter key），先显示原文。", "These entries were written in Chinese; translating them needs a model (Claude or an OpenRouter key), so the original is shown.")}</p>` : "")
+    + S.lore.map(e => { const v = loreView(e); return `
     <article class="card" data-subject="${esc(e.subject)}">
-      <h3>${esc(e.title)}</h3>
-      <p class="lore-text">${esc(e.text).replace(/\[\[([A-Za-z]\d+)\]\]/g, (m, id) => `<span class="ent" data-id="${id}">${esc(nameOf(W, id))}</span>`)}</p>
+      <h3>${esc(v.title)}</h3>
+      <p class="lore-text">${esc(v.text).replace(/\[\[([A-Za-z]\d+)\]\]/g, (m, id) => `<span class="ent" data-id="${id}">${esc(nameOf(W, id))}</span>`)}</p>
       <ul class="claims">${e.claims.map(c => {
-        const r = c.result || checkClaim(W, c);
+        const r = c.result && c.result.lang === LANG ? c.result : checkClaim(W, c);    // labels follow the page language
         const st = c.status || (r.ok ? "ok" : "false");
         const tag = st === "ok" ? L("符合", "holds") : st === "stale" ? L("过期", "stale") : L("不符", "false");
         return `<li class="cl ${st}"><span class="cl-tag">${tag}</span><span>${esc(r.label)}${st !== "ok" ? `<em>${esc(r.measured)}</em>` : ""}</span></li>`;
       }).join("")}</ul>
-    </article>`).join("");
+    </article>`; }).join("");
   el.querySelectorAll(".ent, .card").forEach(n => {
     n.addEventListener("mouseenter", () => { S.highlight = n.dataset.id || n.dataset.subject; renderMap(); });
     n.addEventListener("mouseleave", () => { S.highlight = null; renderMap(); });
