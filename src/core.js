@@ -26,7 +26,7 @@ const NAMES_EN = {
   RIVER_NAMES: ["Greywater", "Willow Brook", "Blackstone", "Silverband", "Mistrun", "Redmud", "Heron River", "Coldspring", "Whitesand", "Reedwither", "Longmere", "Singing Brook"],
   LAKE_NAMES: ["Mirror Lake", "Sunken Bell", "Reedpond", "Coldtarn", "Crescent Mere", "Greyeye Lake", "Bottomless Tarn", "Crane Lake"],
   DIRS8: ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"],
-  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland" },
+  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains" },
   CHAR_METRICS: { land_share: "land share of map", lake_share: "lakes, share of land", mountain_share: "mountains, share of land", desert_share: "desert and salt flat, share of land", grass_share: "grassland, share of land", forest_share: "forest, share of land", cold_share: "ice and tundra, share of land", wetland_share: "marsh, share of land", islands: "landmasses" },
   CHAR_LEVEL_ZH: { none: "almost none", low: "low", moderate: "moderate", high: "high", dominant: "dominant" },
 };
@@ -164,9 +164,9 @@ function initParams(spec) {
 // sea over the same distance, so both get the gentle, buildable shore the original one-sided coast had.
 // Sea primitives (sea, channel) push d up. Relief primitives (pit, peak, rift, lift) add to the elevation afterwards.
 const COAST_D = 0.72;
-const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland"];
-const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷" };
-const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none" };
+const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland", "plains"];
+const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原" };
+const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none", plains: "none" };
 const CLIMATE_T = { polar: -0.36, cold: -0.18, temperate: 0, warm: 0.16, hot: 0.32 };
 const CLIMATE_W = { arid: [0.24, 0], dry: [0.55, 0], normal: [1, 0], humid: [1, 0.16] };
 const RIDGE_LEN = { short: 0.6, medium: 1, long: 1.55 };
@@ -335,6 +335,12 @@ function landformRecipe(spec, seed) {
     case "lakeland": {
       L.push({ t: "fill", d: 0.2 });
       for (let k = I(6, 10); k--;) Z.push({ t: "pit", x: R(0.12, 0.88), y: R(0.12, 0.88), r: R(0.025, 0.06), h: R(0.07, 0.13) });
+      break;
+    }
+    case "plains": {
+      // as low as a landlocked map can sit without the edges dropping below sea level, so it stays warm, open and flat
+      L.push({ t: "fill", d: 0.58 });
+      for (let k = I(1, 3); k--;) Z.push({ t: "pit", x: R(0.2, 0.8), y: R(0.2, 0.8), r: R(0.05, 0.09), h: R(0.02, 0.04) });
       break;
     }
     case "highland": {
@@ -1381,7 +1387,7 @@ set_river_threshold(value)  — flow accumulation needed to draw a river (60–8
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
 declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
-set_landform(landform)  — rebuild land and sea from another template: coast | continent | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered | lakeland | highland. Towns left at sea are pulled back to land.
+set_landform(landform)  — rebuild land and sea from another template. With sea: coast | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
 set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome; under a dry climate, lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
 // The negotiator's only tool. It is deliberately not in TOOL_DOC: the repair agent edits terrain, the negotiator
 // edits the goal, and keeping the two tool sets apart is what makes the stage separable in an ablation.
@@ -1422,6 +1428,9 @@ function applyActions(W, actions) {
       case "set_landform": {
         const lf = String(g.landform || "");
         if (!LANDFORMS.includes(lf)) { results.push({ a, ok: false, msg: L(`未知地形模板 ${lf}`, `unknown landform ${lf}`) }); break; }
+        // whether the world touches the sea is the author's call (spec.ocean_side), not a knob for fixing biome shares
+        const inland = spec.ocean_side === "none";
+        if (inland !== (LANDFORM_SIDE[lf] === "none")) { results.push({ a, ok: false, msg: inland ? L(`这是内陆世界，不能换成有海的「${LANDFORM_ZH[lf]}」`, `this world is landlocked; it cannot become "${LANDFORM_ZH[lf]}", which has sea`) : L(`这个世界临海，不能换成内陆的「${LANDFORM_ZH[lf]}」`, `this world has sea; it cannot become the landlocked "${LANDFORM_ZH[lf]}"`) }); break; }
         const was = P.landform !== undefined ? P.landform : spec.landform;
         P.landform = lf; terrainChanged = true; landformChanged = true;
         results.push({ a, ok: true, msg: L(`地形模板 ${LANDFORM_ZH[was] || "默认海岸"} → ${LANDFORM_ZH[lf]}`, `landform ${LANDFORM_ZH[was] || "default coast"} → ${LANDFORM_ZH[lf]}`) }); break;

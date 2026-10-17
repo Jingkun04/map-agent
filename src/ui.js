@@ -624,7 +624,7 @@ async function llmJSON(prompt, what, item, retried) {
 }
 
 const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
- "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland",
+ "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains",
  "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
  "climate_zone": {"temperature": "polar"|"cold"|"temperate"|"warm"|"hot", "humidity": "arid"|"dry"|"normal"|"humid"},
@@ -650,7 +650,10 @@ landform — the shape of land and sea, drawn fresh from the seed each time:
   archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
   isthmus: two landmasses joined by a narrow neck · inland_sea: land around an enclosed sea with one strait out
   fjords: a mountainous coast cut by long narrow inlets · volcanic_island: one island around a volcanic peak
-  shattered: a landmass broken by winding straits · lakeland: landlocked, dotted with lakes · highland: landlocked plateau split by a rift valley
+  shattered: a landmass broken by winding straits
+  Landlocked, no sea anywhere on the map:
+  plains: low, flat, open interior (steppe, prairie, farmland) · lakeland: dotted with many lakes
+  highland: a raised plateau split by a rift valley — high ground runs cold and rugged, so pick it only for uplands
 mountains.angle — the direction a range runs, in degrees: 0 = east-west, 90 = north-south, 45 = from NW to SE... any value.
 climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and savanna, polar gives ice and tundra.
 character — measurable expectations about the map as a whole. M is one of:
@@ -714,14 +717,17 @@ You do five jobs at once. Do the first one first: everything after it must serve
 
 Rules:
 - ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
-  "none" for lakeland and highland, the sea side for coast, fjords and peninsula.
+  "none" for plains, lakeland and highland, the sea side for coast, fjords and peninsula.
+- A description that says the land is inland, landlocked or far from the sea ("内陆", "深居内陆", "不靠海") needs a
+  landlocked landform; "continent" is NOT inland, it is an island continent ringed by sea. Inland grassland, steppe or
+  farmland is "plains" unless the description asks for highlands or many lakes.
 - A port, or anything that requires "coast", needs a landform with sea. Settlement regions must be places the
   landform puts land (on an archipelago the centre may be open sea).
 - Small islands are low and open: "accessible" (a corridor through hard country) and "defensible" (a commanding
   height) rarely hold there, so on archipelagos and small islands prefer coast, river_mouth and on_river for the
   settlements you invent. Set min_lakes above 0 only when the description names lakes or the landform is lakeland.
 - "lakeland" means a country of many large lakes (Finland, Canadian shield). A desert with oases is NOT lakeland: use
-  highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
+  plains, highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
   (the oases) and dries the rest of each basin into salt flats. Oasis towns can require "lakeside" or "on_river".
 - At most 8 mountains and 20 settlements; seed is any integer from 1 to 99999.
 - If the description asks for something impossible (a port in a landlocked region), keep it anyway: the verifier
@@ -838,7 +844,7 @@ function charSummary(W) {
   let land = 0; for (let i = 0; i < NN; i++) if (!W.ocean[i]) { land++; bc[W.biome[i]] = (bc[W.biome[i]] || 0) + 1; }
   const biomes = Object.fromEntries(Object.entries(bc).sort((a, b) => b[1] - a[1]).filter(([, n]) => n / land >= 0.01).map(([b, n]) => [b, +(n / land).toFixed(2)]));
   return {
-    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)", scale: W.spec.scale || "region",
+    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)", ocean_side: W.spec.ocean_side, scale: W.spec.scale || "region",
     climate_zone: (W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone) || { temperature: "temperate", humidity: "normal" },
     stats: st, biome_shares_of_land: biomes,
     settlements: W.spec.settlements.map(s => ({ name: s.name, type: s.type, region: regionOf(...W.P.pos[s.id]), biome: W.biome[posIdx(W, s.id)] })),
@@ -871,7 +877,8 @@ ${final ? `"actions": []}` : `"add_character": [character expectations the map s
 Tools:
 ${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)/.test(l)).join("\n")}
 
-Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.`}
+Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.
+A landlocked world (ocean_side "none") stays landlocked: fix its biome shares with another landlocked template or the climate, never by adding sea.`}
 Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
   const out = await llmJSON(prompt, final ? L("终审：对照描述", "final review against the description") : L("审阅：对照描述", "review against the description"), item);
   return {
