@@ -662,7 +662,9 @@ climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and s
 character — measurable expectations about the map as a whole. M is one of:
   land_share (land / whole map) · lake_share · mountain_share · desert_share (desert + salt flat) · grass_share
   (grassland, steppe, savanna) · forest_share · cold_share (ice, tundra, snow) · wetland_share — each a share of the land —
-  and islands (number of separate landmasses). Levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.
+  and islands (number of separate landmasses, small islets included). Levels: none ≤ 2%, low ≤ 15%, moderate 10–40%,
+  high ≥ 35%, dominant ≥ 55%. The checks allow some slack (about 5 points on a share, a few extra islets on a count),
+  so pick the level that reads right instead of aiming at a boundary, and give islands a range, not one number.
   Typical values: a temperate coast is ~60-80% land with lake_share ~2-5%; lakeland lake_share 10-20%; an archipelago
   has 5-12 landmasses and land_share 25-45%.
 
@@ -681,10 +683,13 @@ ${SPEC_SCHEMA()}
 
 You do five jobs at once. Do the first one first: everything after it must serve it.
 
-0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-5 "character"
-   expectations that the description implies and a reader would check at a glance: a desert empire is dominated by
+0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-4 "character"
+   expectations that the description states or clearly implies and a reader would check at a glance: a desert empire is dominated by
    desert and has almost no lakes; a Viking archipelago has many islands and a cold climate; a jungle kingdom is
-   mostly forest. Each needs a ${LANGN()} "why". These rank ABOVE every site constraint: when a town's requirement
+   mostly forest. Each needs a ${LANGN()} "why". Leave out what the description is silent on: "a grassland realm"
+   implies grass dominates, not that forests, lakes and deserts must each stay low. Every expectation is a rule the
+   generator must obey, so a few that matter leave it room to make a varied, believable map; a long list of guesses
+   boxes it in. These rank ABOVE every site constraint: when a town's requirement
    would break the world's character (a lakeside town in a desert with no lakes), the town gives way, not the world.
    Then choose landform, climate_zone and scale so that the character holds.
 
@@ -873,7 +878,8 @@ big lakes; a frozen archipelago should be many cold islands; a river delta needs
 
 Reply with only JSON:
 {"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short ${LANGN()} sentences, most important first"],
-${final ? `"actions": []}` : `"add_character": [character expectations the map should meet but nobody declared, same shape as above:
+${final ? `"actions": []}` : `"add_character": [at most two character expectations the map should meet but nobody declared, same shape as above;
+   add one only when the map clearly contradicts something the description says, not to pin down a share it never mentions:
    {"metric": ..., "level": ... | "min"/"max" for islands, "why": ${LANGN()}}],
  "actions": [{"tool": "<name>", "args": {...every argument the tool lists...}}] — tool calls that fix the world as a whole,
    from: set_landform, set_climate, raise_ridge, carve_basin, set_sea_level, set_river_threshold}
@@ -883,11 +889,12 @@ ${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve
 
 Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.
 A landlocked world (ocean_side "none") stays landlocked: fix its biome shares with another landlocked template or the climate, never by adding sea.`}
-Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
+Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%,
+checked with about 5 points of slack; islands counts small islets too, so give it a range.`;
   const out = await llmJSON(prompt, final ? L("终审：对照描述", "final review against the description") : L("审阅：对照描述", "review against the description"), item);
   return {
     fits: !!out.fits, score: clamp(Math.round(+out.score || 0), 0, 5), issues: (Array.isArray(out.issues) ? out.issues : []).map(String).slice(0, 6),
-    add: final ? [] : normalizeCharacter(out.add_character, "critic"),
+    add: final ? [] : normalizeCharacter(out.add_character, "critic").slice(0, 2),
     actions: final ? [] : (Array.isArray(out.actions) ? out.actions : []).filter(a => a && /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)$/.test(a.tool)).slice(0, 6),
   };
 }

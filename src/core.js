@@ -223,13 +223,25 @@ function charLabel(c) {
   if (c.metric === "islands") return `${CHAR_METRICS.islands}${L("：", ": ")}${c.max >= 99 ? `≥ ${c.min}` : `${c.min}–${c.max}`}`;
   return `${CHAR_METRICS[c.metric]}${L("：", ": ")}${CHAR_LEVEL_ZH[c.level]}`;
 }
+// Character checks pass with some slack around the stated range. They describe how a world reads, and nobody can tell
+// 15% tundra from 18% at a glance; a hard line would roll back repair rounds over a difference no reader sees and teach
+// the model to treat the levels as exact targets. Shares get 5 points either way ("none" 2); a landmass count gets
+// room above for the islets every island coast throws off, and a little below once it asks for many.
+const CHAR_TOL = 0.05;
+function charBounds(c) {
+  if (c.metric === "islands") return [c.min - Math.floor(c.min * 0.2), c.max >= 99 ? Infinity : c.max + Math.max(3, Math.ceil(c.max * 0.5))];
+  const [lo, hi] = CHAR_LEVELS[c.level], t = c.level === "none" ? 0.02 : CHAR_TOL;
+  return [lo > 0 ? lo - t : 0, hi < 1 ? hi + t : 1];
+}
 function charCheck(W, c) {
-  const v = mapStats(W)[c.metric];
-  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass: v >= c.min && v <= c.max, measured: L(`实测 ${v} 块（预期 ${want}）`, `measured ${v} (expected ${want})`) }; }
+  const v = mapStats(W)[c.metric], [blo, bhi] = charBounds(c);
+  const strict = c.metric === "islands" ? v >= c.min && v <= c.max : v >= CHAR_LEVELS[c.level][0] && v <= CHAR_LEVELS[c.level][1];
+  const pass = v >= blo && v <= bhi, slack = pass && !strict ? L("，在容差内", ", within tolerance") : "";
+  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass, measured: L(`实测 ${v} 块（预期 ${want}${slack}）`, `measured ${v} (expected ${want}${slack})`) }; }
   const [lo, hi] = CHAR_LEVELS[c.level];
   const pct = x => `${Math.round(x * 100)}%`;
   const want = lo > 0 && hi >= 1 ? `≥ ${pct(lo)}` : lo > 0 ? `${pct(lo)}–${pct(hi)}` : `≤ ${pct(hi)}`;
-  return { pass: v >= lo && v <= hi, measured: L(`实测 ${pct(v)}（预期 ${want}）`, `measured ${pct(v)} (expected ${want})`) };
+  return { pass, measured: L(`实测 ${pct(v)}（预期 ${want}${slack}）`, `measured ${pct(v)} (expected ${want}${slack})`) };
 }
 
 // evaporation per lake cell under a climate_zone, relative to inflow (acc); LAKE_K scales inflow to lake cells
