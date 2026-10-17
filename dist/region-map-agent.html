@@ -403,7 +403,7 @@ const NAMES_EN = {
   RIVER_NAMES: ["Greywater", "Willow Brook", "Blackstone", "Silverband", "Mistrun", "Redmud", "Heron River", "Coldspring", "Whitesand", "Reedwither", "Longmere", "Singing Brook"],
   LAKE_NAMES: ["Mirror Lake", "Sunken Bell", "Reedpond", "Coldtarn", "Crescent Mere", "Greyeye Lake", "Bottomless Tarn", "Crane Lake"],
   DIRS8: ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"],
-  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains" },
+  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains", basin: "mountain-ringed basin", bay: "gulf coast", two_coasts: "two-sea coast" },
   CHAR_METRICS: { land_share: "land share of map", lake_share: "lakes, share of land", mountain_share: "mountains, share of land", desert_share: "desert and salt flat, share of land", grass_share: "grassland, share of land", forest_share: "forest, share of land", cold_share: "ice and tundra, share of land", wetland_share: "marsh, share of land", islands: "landmasses" },
   CHAR_LEVEL_ZH: { none: "almost none", low: "low", moderate: "moderate", high: "high", dominant: "dominant" },
 };
@@ -454,8 +454,10 @@ function normalizeSpec(raw) {
   // Optional fields below (landform, scale, climate_zone, names, hamlets) are left out when absent, so a spec
   // without them derives exactly the world it always did — the benchmark specs depend on that.
   if (LANDFORMS.includes(s.landform)) out.landform = s.landform;
-  out.ocean_side = ["E", "W", "N", "S", "all", "none"].includes(s.ocean_side) ? s.ocean_side
+  out.ocean_side = OCEAN_SIDES.includes(s.ocean_side) ? s.ocean_side
     : out.landform ? (LANDFORM_SIDE[out.landform] || "E") : "E";
+  // two seas can only be drawn by the two-coast template; without a landform the old one-sided shapes would drop them
+  if (out.ocean_side.length === 2 && !out.landform) out.landform = "two_coasts";
   if (SCALES[s.scale] && s.scale !== "region") out.scale = s.scale;
   if (s.climate_zone && typeof s.climate_zone === "object") {
     const t = CLIMATE_T[s.climate_zone.temperature] != null ? s.climate_zone.temperature : "temperate";
@@ -541,9 +543,11 @@ function initParams(spec) {
 // sea over the same distance, so both get the gentle, buildable shore the original one-sided coast had.
 // Sea primitives (sea, channel) push d up. Relief primitives (pit, peak, rift, lift) add to the elevation afterwards.
 const COAST_D = 0.72;
-const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland", "plains"];
-const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原" };
-const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none", plains: "none" };
+const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland", "plains", "basin", "bay", "two_coasts"];
+const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原", basin: "群山盆地", bay: "大海湾", two_coasts: "两面临海" };
+// one sea side, two (a corner such as NE, or opposite sides NS / EW), sea all round, or none
+const OCEAN_SIDES = ["E", "W", "N", "S", "NE", "NW", "SE", "SW", "NS", "EW", "all", "none"];
+const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none", plains: "none", basin: "none", bay: "E", two_coasts: "NE" };
 const CLIMATE_T = { polar: -0.36, cold: -0.18, temperate: 0, warm: 0.16, hot: 0.32 };
 const CLIMATE_W = { arid: [0.24, 0], dry: [0.55, 0], normal: [1, 0], humid: [1, 0.16] };
 const RIDGE_LEN = { short: 0.6, medium: 1, long: 1.55 };
@@ -610,22 +614,24 @@ const EVAP_W = { arid: 4, dry: 1.6, normal: 0.55, humid: 0.3 }, EVAP_T = { polar
 
 function landformRecipe(spec, seed) {
   const r = rng(seed * 31 + 4242), R = (a, b) => a + r() * (b - a), I = (a, b) => Math.floor(R(a, b + 1));
-  const side = ["E", "W", "N", "S"].includes(spec.ocean_side) ? spec.ocean_side : ["E", "W", "N", "S"][I(0, 3)];
+  const sides = OCEAN_SIDES.includes(spec.ocean_side) && spec.ocean_side.length <= 2 ? spec.ocean_side.split("") : [];
+  const side = sides.length ? sides[0] : ["E", "W", "N", "S"][I(0, 3)];
   const L = [], S = [], Z = [];          // land, sea, relief
   const blob = (x, y, rx, ry, a = R(0, Math.PI)) => L.push({ t: "blob", x, y, rx, ry, a });
   const sea = (x, y, rx, ry, a = R(0, Math.PI)) => S.push({ t: "sea", x, y, rx, ry, a });
-  const chan = (x1, y1, x2, y2, w) => S.push({ t: "chan", x1, y1, x2, y2, w });
+  const chan = (x1, y1, x2, y2, w, dep = 0.08) => S.push({ t: "chan", x1, y1, x2, y2, w, dep });
   // a channel that bends and narrows towards its far end, built from short straight pieces
-  const wiggle = (x1, y1, x2, y2, w0, w1, n = 4, j = 0.08) => {
+  const wiggle = (x1, y1, x2, y2, w0, w1, n = 4, j = 0.08, dep = 0.08) => {
     const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1, px = -dy / l, py = dx / l;
     let ax = x1, ay = y1;
     for (let k = 1; k <= n; k++) {
       const t = k / n, o = k < n ? R(-j, j) * l : 0, bx = x1 + dx * t + px * o, by = y1 + dy * t + py * o;
-      chan(ax, ay, bx, by, w0 + (w1 - w0) * (k - 0.5) / n); ax = bx; ay = by;
+      chan(ax, ay, bx, by, w0 + (w1 - w0) * (k - 0.5) / n, dep); ax = bx; ay = by;
     }
   };
   // a point on the edge facing the sea, and the inward normal
-  const edge = (t) => side === "E" ? [1, t, -1, 0] : side === "W" ? [0, t, 1, 0] : side === "N" ? [t, 0, 0, 1] : [t, 1, 0, -1];
+  const edgeOf = (sd, t) => sd === "E" ? [1, t, -1, 0] : sd === "W" ? [0, t, 1, 0] : sd === "N" ? [t, 0, 0, 1] : [t, 1, 0, -1];
+  const edge = (t) => edgeOf(side, t);
   const ring = (cx, cy, rad, n, rmin, rmax) => { const a0 = R(0, 6.3); for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28 + R(-0.3, 0.3), d = rad * R(0.85, 1.15); blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, R(rmin, rmax), R(rmin, rmax)); } };
   switch (spec.landform) {
     case "coast": {
@@ -654,9 +660,18 @@ function landformRecipe(spec, seed) {
       break;
     }
     case "islands": {
-      const n = I(2, 3), a0 = R(0, 6.3);
-      for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28; blob(0.5 + Math.cos(a) * 0.25, 0.5 + Math.sin(a) * 0.25, R(0.16, 0.21), R(0.13, 0.18)); }
+      // two or three big islands round the centre, each small enough to leave a sea gap to its neighbours, and a deep
+      // strait between every pair: the coordinate warp and the smooth union of blobs would otherwise fuse them
+      const n = I(2, 3), a0 = R(0, 6.3), rho = R(0.25, 0.29);
+      const rmax = (2 * rho * Math.sin(Math.PI / n) - 0.1) / 2, cs = [];
+      for (let k = 0; k < n; k++) {
+        const a = a0 + k / n * 6.28, rx = Math.min(R(0.16, 0.21), rmax);
+        cs.push([0.5 + Math.cos(a) * rho, 0.5 + Math.sin(a) * rho]); blob(cs[k][0], cs[k][1], rx, rx * R(0.7, 0.9));
+      }
       for (let k = I(3, 6); k--;) blob(R(0.12, 0.88), R(0.12, 0.88), R(0.015, 0.04), R(0.015, 0.04));
+      if (n === 2) { const px = -(cs[1][1] - cs[0][1]) / (2 * rho), py = (cs[1][0] - cs[0][0]) / (2 * rho); chan(0.5 - px * 0.6, 0.5 - py * 0.6, 0.5 + px * 0.6, 0.5 + py * 0.6, 0.03, 0.2); }
+      // with three, each strait runs from the centre out between its pair, away from the third island
+      else for (let k = 0; k < 3; k++) { const m = [(cs[k][0] + cs[(k + 1) % 3][0]) / 2, (cs[k][1] + cs[(k + 1) % 3][1]) / 2], l = Math.hypot(m[0] - 0.5, m[1] - 0.5); chan(0.5, 0.5, 0.5 + (m[0] - 0.5) / l * 0.6, 0.5 + (m[1] - 0.5) / l * 0.6, 0.03, 0.2); }
       break;
     }
     case "peninsula": {
@@ -680,7 +695,10 @@ function landformRecipe(spec, seed) {
       L.push({ t: "fill", d: 0.35 });
       const cx = R(0.42, 0.58), cy = R(0.42, 0.58);
       sea(cx, cy, R(0.2, 0.27), R(0.12, 0.18));
-      const [ex, ey] = edge(R(0.3, 0.7)); chan(cx, cy, ex, ey, R(0.025, 0.04));
+      // the strait runs on past the map edge (the coordinates are warped by up to ~0.09, so one that stopped at the
+      // edge could end short of it) and is cut deep enough that terrain noise cannot dam it; otherwise the sea is left
+      // cut off as a dry hollow below sea level
+      const [ex, ey, nx, ny] = edge(R(0.3, 0.7)); chan(cx, cy, ex - nx * 0.15, ey - ny * 0.15, R(0.03, 0.045), 0.2);
       for (let k = I(1, 3); k--;) blob(cx + R(-0.12, 0.12), cy + R(-0.06, 0.06), R(0.02, 0.05), R(0.02, 0.04));
       break;
     }
@@ -720,6 +738,39 @@ function landformRecipe(spec, seed) {
       for (let k = I(1, 3); k--;) Z.push({ t: "pit", x: R(0.2, 0.8), y: R(0.2, 0.8), r: R(0.05, 0.09), h: R(0.02, 0.04) });
       break;
     }
+    case "basin": {
+      // a lowland ringed by mountains that drains out through one gorge (Sichuan, Tarim, the Carpathian basin)
+      L.push({ t: "fill", d: 0.5 });
+      const cx = R(0.45, 0.55), cy = R(0.45, 0.55), rx = R(0.3, 0.36), ry = R(0.26, 0.32);
+      const a = R(0, Math.PI), gap = R(-Math.PI, Math.PI);
+      Z.push({ t: "ring", x: cx, y: cy, rx, ry, a, w: R(0.05, 0.07), h: R(0.17, 0.22), gap, gw: R(0.25, 0.4) });
+      // a valley from the middle out through the gorge, so the floor drains instead of filling into one great lake
+      const gx = Math.cos(gap) * rx * 1.5, gy = Math.sin(gap) * ry * 1.5;
+      Z.push({ t: "rift", x1: cx, y1: cy, x2: cx + gx * Math.cos(a) - gy * Math.sin(a), y2: cy + gx * Math.sin(a) + gy * Math.cos(a), w: 0.06, h: 0.08 });
+      break;
+    }
+    case "bay": {
+      // a mainland coast with one large gulf reaching deep inland through a narrower mouth (Bohai, the Gulf of Bothnia)
+      L.push({ t: "side", side });
+      const [ex, ey, nx, ny] = edge(R(0.3, 0.7)), dep = R(0.42, 0.55), w = R(0.1, 0.15), bx = ex + nx * dep, by = ey + ny * dep;
+      sea(bx, by, w * R(1.1, 1.6), w, Math.atan2(ny, nx) + Math.PI / 2 + R(-0.5, 0.5));     // the gulf, lying across the way in
+      wiggle(bx, by, ex - nx * 0.1, ey - ny * 0.1, R(0.035, 0.055), R(0.05, 0.08), 3, 0.06, 0.2);   // and its mouth
+      if (r() < 0.6) blob(bx + R(-0.05, 0.05), by + R(-0.05, 0.05), R(0.015, 0.03), R(0.015, 0.03));
+      for (let k = I(1, 2); k--;) { const [ex2, ey2, nx2, ny2] = edge(R(0.1, 0.9)), d2 = R(0.12, 0.2); sea(ex2 + nx2 * d2, ey2 + ny2 * d2, R(0.04, 0.07), R(0.04, 0.07)); }
+      break;
+    }
+    case "two_coasts": {
+      // sea on two sides: a corner of land (NE, SW...) or a strip of land between two seas (NS, EW)
+      const opp = { E: "W", W: "E", N: "S", S: "N" }, adj = { E: ["N", "S"], W: ["N", "S"], N: ["E", "W"], S: ["E", "W"] };
+      const pair = sides.length === 2 ? sides : [side, r() < 0.65 ? adj[side][I(0, 1)] : opp[side]];
+      const across = pair[1] === opp[pair[0]];       // a strip between two seas keeps less sea on each side
+      L.push({ t: "sides", sides: pair.map(sd => ({ sd, off: across ? R(0.06, 0.14) : R(0.02, 0.1) })) });
+      for (const sd of pair) {
+        for (let k = I(1, 2); k--;) { const [ex, ey, nx, ny] = edgeOf(sd, R(0.2, 0.8)), dep = R(0.12, 0.2); sea(ex + nx * dep, ey + ny * dep, R(0.05, 0.09), R(0.05, 0.09)); }
+        for (let k = I(0, 2); k--;) { const [ex, ey, nx, ny] = edgeOf(sd, R(0.1, 0.9)), off = R(0.06, 0.12); blob(ex + nx * off, ey + ny * off, R(0.025, 0.05), R(0.025, 0.05)); }
+      }
+      break;
+    }
     case "highland": {
       L.push({ t: "fill", d: 0.0 });
       Z.push({ t: "lift", h: 0.035 });
@@ -740,12 +791,14 @@ function seaDistance(rec, u, v) {
     let e;
     if (p.t === "blob") e = COAST_D + (ellDist(p, u, v) - 1) * Math.min(p.rx, p.ry);
     else if (p.t === "fill") e = p.d;
+    // land must be far from every listed sea: a smooth max of the one-sided distances rounds the corner
+    else if (p.t === "sides") e = p.sides.reduce((m, q) => -smin(-m, -((q.sd === "E" ? u : q.sd === "W" ? 1 - u : q.sd === "N" ? 1 - v : v) - q.off), 0.06), -9);
     else { const t = p.side === "E" ? u : p.side === "W" ? 1 - u : p.side === "N" ? 1 - v : v; e = p.reach ? COAST_D + (1 - t) - p.reach : t; }
     d = smin(d, e, 0.03);
   }
   for (const p of rec.S) {
     const e = p.t === "sea" ? ellDist(p, u, v) : segDist(u, v, p.x1, p.y1, p.x2, p.y2) / p.w;
-    if (e < 1) d = Math.max(d, COAST_D + (1 - e) * (p.t === "sea" ? Math.max(0.08, Math.min(p.rx, p.ry)) : 0.08));
+    if (e < 1) d = Math.max(d, COAST_D + (1 - e) * (p.t === "sea" ? Math.max(0.08, Math.min(p.rx, p.ry)) : p.dep));
   }
   return d;
 }
@@ -754,6 +807,12 @@ function reliefAt(rec, u, v) {
   for (const p of rec.Z) {
     if (p.t === "lift") z += p.h;
     else if (p.t === "rift") { const e = segDist(u, v, p.x1, p.y1, p.x2, p.y2) / p.w; z -= p.h * Math.exp(-e * e); }
+    else if (p.t === "ring") {
+      // a mountain wall along an ellipse, nearly gone in a gorge at angle p.gap so the basin can drain
+      const c = Math.cos(p.a), s = Math.sin(p.a), dx = u - p.x, dy = v - p.y, lx = (dx * c + dy * s) / p.rx, ly = (-dx * s + dy * c) / p.ry;
+      const e = (Math.hypot(lx, ly) - 1) * Math.min(p.rx, p.ry) / p.w, da = Math.atan2(ly, lx) - p.gap, dg = Math.atan2(Math.sin(da), Math.cos(da)) / p.gw;
+      z += p.h * Math.exp(-e * e) * (1 - 0.95 * Math.exp(-dg * dg));
+    }
     else { const e = Math.hypot(u - p.x, v - p.y) / p.r; z += (p.t === "peak" ? 1 : -1) * p.h * Math.exp(-e * e); }
   }
   return z;
@@ -1764,7 +1823,7 @@ set_river_threshold(value)  — flow accumulation needed to draw a river (60–8
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
 declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
-set_landform(landform)  — rebuild land and sea from another template. With sea: coast | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
+set_landform(landform)  — rebuild land and sea from another template. With sea: coast | bay (coast with one large gulf) | two_coasts (sea on two sides) | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | basin (lowland ringed by mountains) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
 set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome; under a dry climate, lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
 // The negotiator's only tool. It is deliberately not in TOOL_DOC: the repair agent edits terrain, the negotiator
 // edits the goal, and keeping the two tool sets apart is what makes the stage separable in an ablation.
@@ -2049,7 +2108,8 @@ function randomSpec(seed) {
     } for (let t = 0; t < 40; t++) { const a = pick(HAMLET_A), b = pick(HAMLET_A), n = ((two || r() < 0.7) && a !== b ? a + b : a) + suf; if (!used.has(n)) { used.add(n); return n; } } return pick(HAMLET_A) + suf; };
   const landform = pick(LANDFORMS);
   const sea = LANDFORM_SIDE[landform] !== "none";
-  const ocean_side = ["coast", "fjords", "peninsula"].includes(landform) ? pick(["E", "W", "N", "S"]) : LANDFORM_SIDE[landform];
+  const ocean_side = ["coast", "fjords", "peninsula", "bay"].includes(landform) ? pick(["E", "W", "N", "S"])
+    : landform === "two_coasts" ? pick(["NE", "NW", "SE", "SW", "NS", "EW"]) : LANDFORM_SIDE[landform];
   const temperature = wpick({ polar: 1, cold: 2, temperate: 4, warm: 2, hot: 2 }), humidity = wpick({ arid: 1, dry: 2, normal: 4, humid: 2 });
   const era = wpick({ medieval: 5, modern: 2, future: 1.5, alien: 1.5 });
   const wseed = Math.floor(r() * 99999) + 1;
@@ -4653,8 +4713,8 @@ async function llmJSON(prompt, what, item, retried) {
 }
 
 const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
- "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains",
- "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
+ "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains"|"basin"|"bay"|"two_coasts",
+ "ocean_side": "E"|"W"|"N"|"S"|"NE"|"NW"|"SE"|"SW"|"NS"|"EW"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
  "climate_zone": {"temperature": "polar"|"cold"|"temperate"|"warm"|"hot", "humidity": "arid"|"dry"|"normal"|"humid"},
  "mountains": [{"name": string, "region": R, "angle": 0-179, "length": "short"|"medium"|"long", "invented": boolean}],
@@ -4676,12 +4736,15 @@ ground it covers: region = 1024 km across (a province), kingdom = 2048 km, conti
 
 landform — the shape of land and sea, drawn fresh from the seed each time:
   coast: mainland with the sea on ocean_side, bays and offshore islets · continent: one large landmass ringed by sea
+  bay: mainland with the sea on ocean_side and one large gulf reaching deep inland through a narrower mouth
+  two_coasts: sea on two sides — a corner of land (ocean_side NE, NW, SE, SW) or a strip between two seas (NS, EW)
   archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
   isthmus: two landmasses joined by a narrow neck · inland_sea: land around an enclosed sea with one strait out
   fjords: a mountainous coast cut by long narrow inlets · volcanic_island: one island around a volcanic peak
   shattered: a landmass broken by winding straits
   Landlocked, no sea anywhere on the map:
   plains: low, flat, open interior (steppe, prairie, farmland) · lakeland: dotted with many lakes
+  basin: a lowland ringed by mountains that drains out through one gorge (Sichuan, Tarim)
   highland: a raised plateau split by a rift valley — high ground runs cold and rugged, so pick it only for uplands
 mountains.angle — the direction a range runs, in degrees: 0 = east-west, 90 = north-south, 45 = from NW to SE... any value.
 climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and savanna, polar gives ice and tundra.
@@ -4746,7 +4809,8 @@ You do five jobs at once. Do the first one first: everything after it must serve
 
 Rules:
 - ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
-  "none" for plains, lakeland and highland, the sea side for coast, fjords and peninsula.
+  "none" for plains, basin, lakeland and highland, the sea side for coast, bay, fjords and peninsula, and the two
+  sides for two_coasts.
 - A description that says the land is inland, landlocked or far from the sea ("内陆", "深居内陆", "不靠海") needs a
   landlocked landform; "continent" is NOT inland, it is an island continent ringed by sea. Inland grassland, steppe or
   farmland is "plains" unless the description asks for highlands or many lakes.

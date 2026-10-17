@@ -624,8 +624,8 @@ async function llmJSON(prompt, what, item, retried) {
 }
 
 const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
- "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains",
- "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
+ "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains"|"basin"|"bay"|"two_coasts",
+ "ocean_side": "E"|"W"|"N"|"S"|"NE"|"NW"|"SE"|"SW"|"NS"|"EW"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
  "climate_zone": {"temperature": "polar"|"cold"|"temperate"|"warm"|"hot", "humidity": "arid"|"dry"|"normal"|"humid"},
  "mountains": [{"name": string, "region": R, "angle": 0-179, "length": "short"|"medium"|"long", "invented": boolean}],
@@ -647,12 +647,15 @@ ground it covers: region = 1024 km across (a province), kingdom = 2048 km, conti
 
 landform — the shape of land and sea, drawn fresh from the seed each time:
   coast: mainland with the sea on ocean_side, bays and offshore islets · continent: one large landmass ringed by sea
+  bay: mainland with the sea on ocean_side and one large gulf reaching deep inland through a narrower mouth
+  two_coasts: sea on two sides — a corner of land (ocean_side NE, NW, SE, SW) or a strip between two seas (NS, EW)
   archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
   isthmus: two landmasses joined by a narrow neck · inland_sea: land around an enclosed sea with one strait out
   fjords: a mountainous coast cut by long narrow inlets · volcanic_island: one island around a volcanic peak
   shattered: a landmass broken by winding straits
   Landlocked, no sea anywhere on the map:
   plains: low, flat, open interior (steppe, prairie, farmland) · lakeland: dotted with many lakes
+  basin: a lowland ringed by mountains that drains out through one gorge (Sichuan, Tarim)
   highland: a raised plateau split by a rift valley — high ground runs cold and rugged, so pick it only for uplands
 mountains.angle — the direction a range runs, in degrees: 0 = east-west, 90 = north-south, 45 = from NW to SE... any value.
 climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and savanna, polar gives ice and tundra.
@@ -717,7 +720,8 @@ You do five jobs at once. Do the first one first: everything after it must serve
 
 Rules:
 - ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
-  "none" for plains, lakeland and highland, the sea side for coast, fjords and peninsula.
+  "none" for plains, basin, lakeland and highland, the sea side for coast, bay, fjords and peninsula, and the two
+  sides for two_coasts.
 - A description that says the land is inland, landlocked or far from the sea ("内陆", "深居内陆", "不靠海") needs a
   landlocked landform; "continent" is NOT inland, it is an island continent ringed by sea. Inland grassland, steppe or
   farmland is "plains" unless the description asks for highlands or many lakes.
