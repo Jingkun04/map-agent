@@ -502,7 +502,7 @@ function saveRecord() {
     landform: S.spec.landform || "", scale: S.spec.scale || "region", engine: S.recordEng || "offline",
     spec: S.spec, P: sn.W.P, lore: S.lore, trace: S.trace.map(t => ({ ...t, pending: null })),
     traj: S.trajOverride || S.snaps.filter(x => x.kind !== "edit").map(x => reportOf(x).fails.length),
-    fails: rep.fails.length, rate: rep.rate, calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
+    fails: rep.fails.length, rate: rep.rate, score: scoreOf(sn), calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
   };
   S.hist = [rec, ...S.hist.filter(r => r.id !== rec.id)].slice(0, HIST_MAX);     // show it at once; the store catches up
   renderHistory(); $("#histWrap").open = true;
@@ -583,6 +583,7 @@ function pushSnap(W, label, kind) {
   S.cur = S.snaps.length - 1;
   refreshAll();
 }
+function scoreOf(sn) { const rep = reportOf(sn); if (sn.scoreRep !== rep) { sn.score = layeredScore(sn.W, rep); sn.scoreRep = rep; } return sn.score; }
 function reportOf(sn) {
   if (!sn.rep || sn.repLore !== S.loreVersion || sn.repLang !== LANG) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; sn.repLang = LANG; }
   return sn.rep;
@@ -809,6 +810,9 @@ async function llmRepair(W, rep, hist, fb, item) {
     map_stats: mapStats(W),
     relaxed_constraints: (W.P.relaxed || []).map(r => ({ settlement: r.sid, was: r.item, now: r.to, why: r.reason })),
     settlement_regions: Object.fromEntries(W.spec.settlements.map(s => [s.id, regionOf(...W.P.pos[s.id])])),
+    layered_score: Object.fromEntries(["character", "nature", "detail"].map((k, j) => [k, layeredScore(W, rep)[j]])),
+    // passing character checks within 3 points of failing: the agent sees only failures otherwise, and kept breaking these
+    near_limits: rep.checks.filter(c => c.code === "character" && c.status === "pass" && c.margin <= 3).map(c => ({ id: c.id, check: c.label, measured: c.measured, points_left: c.margin })),
   };
   const feedback = fb === "structured"
     ? "Structured verifier report (failed checks only):\n" + JSON.stringify(rep.fails.map(f => ({
@@ -817,7 +821,8 @@ async function llmRepair(W, rep, hist, fb, item) {
         conflict: f.conflict ? { core: f.conflict.core, reason: f.conflict.reason } : undefined,
       })), null, 0)
     : "Verifier verdict: FAIL. No further detail is available in this condition.";
-  const history = hist.slice(-3).map((h, k) => ({ round: hist.length - Math.min(3, hist.length) + k + 1, actions: h.actions, results: h.results.map(r => `${r.a.tool}: ${r.ok ? "ok" : "failed"} — ${r.msg}`) }));
+  const history = hist.slice(-3).map((h, k) => ({ round: hist.length - Math.min(3, hist.length) + k + 1, actions: h.actions, results: h.results.map(r => `${r.a.tool}: ${r.ok ? "ok" : "failed"} — ${r.msg}`),
+    ...(h.score ? { score_before: h.score[0], score_after: h.score[1], kept: h.kept } : {}) }));
   const prompt = `You are the repair agent in a regional-map generation loop. The generator is procedural; you can only change it through the tools below. After your actions the map is rebuilt and verified again.
 
 WorldSpec:
@@ -838,11 +843,18 @@ Tools:
 ${TOOL_DOC}
 
 Reply with only JSON: {"analysis": "one or two sentences in ${LANGN()} explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
-PRIORITY: checks with code "character" describe the world as a whole and outrank every other check. Fix them first,
-usually with set_climate or set_landform. Never trade one away for a town: a round whose edits break a character check
-that was passing is rolled back automatically. If a town's requirement can only be met by breaking the world's
+HOW A ROUND IS JUDGED: after your actions the map gets a layered score [character, nature, detail], lower is better,
+compared layer by layer. character = how many points the whole-map shares miss their tolerated bands by, plus 50 if the
+map has sea where the spec has none or the other way round. nature = physics and climate-vegetation failures (rivers
+without outlet, rain shadow, towns in water or on cliffs, rainforest in a dry climate). detail = settlement sites,
+relations, ranges, river and lake counts, weighted by source (author 1, proposed 0.5, invented ×0.6) and by how near
+the miss is. A round is kept only if it does not make an earlier layer worse; changes under 1 / 0.5 / 0.25 count as a
+tie. A worse round is undone, except that its settlement moves and declarations are kept when they alone help. So fix
+character first, usually with set_climate or set_landform, never trade it for a town, and leave "near_limits" checks
+alone: they pass now but have only a few points left. If a town's requirement can only be met by breaking the world's
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
-the character expectation.
+the character expectation; a declared detail still costs half its weight, and declaring a character or nature check
+changes nothing in the score.
 A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
   const out = await llmJSON(prompt, L("决定修正动作", "choosing repairs"), item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
@@ -1019,7 +1031,12 @@ function normalizeEntries(list, W, idOffset) {
 // ---------- the agent loop ----------
 async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   const hist = [];
-  let rep = verify(W, withLore ? activeLore() : null);
+  const lore = () => withLore ? activeLore() : null;
+  let rep = verify(W, lore()), score = layeredScore(W, rep);
+  // the best version seen so far, by the layered score; the loop hands back this one, not simply the last
+  let best = { W, score };
+  const keepBest = () => { if (rankScore(score, best.score) < 0) best = { W, score }; };
+  const callOf = x => `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`;
   const negotiated = new Set();          // one negotiation per distinct conflict core, never the same core twice
   for (let it = 1; it <= maxIter; it++) {
     if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("验证器没有发现剩余违规，循环结束。", "The verifier finds nothing left; the loop ends.") }); break; }
@@ -1035,15 +1052,23 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
         try { dec = eng === "claude" ? await llmNegotiate(W, briefs, desc, ni) : scriptedNegotiate(W, briefs); }
         catch (e) { ni.body += L(` 让步决策失败：${e.message || e}`, ` Negotiation failed: ${e.message || e}`); }
         if (dec.actions.length) {
-          const r = applyActions(W, dec.actions);
-          hist.push({ actions: dec.actions, results: r.results });
-          W = r.W; rep = verify(W, withLore ? activeLore() : null);
+          const r = applyActions(W, dec.actions), rep2 = verify(r.W, lore()), s2 = layeredScore(r.W, rep2);
           if (dec.analysis) ni.body = dec.analysis;
-          ni.after = rep.fails.length;
-          ni.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
-          pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
-          await frame();
-          if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+          ni.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok, msg: x.msg }));
+          if (compareScore(s2, score) > 0) {
+            // trades only weaken goals, so this is rare; still, nothing gets in that makes the map score worse
+            ni.after = rep.fails.length; ni.body += L(`（让步后评分变差：${scoreText(score)} → ${scoreText(s2)}，未采用）`, ` (the trades would worsen the score: ${scoreText(score)} → ${scoreText(s2)}; not adopted)`);
+            hist.push({ actions: dec.actions, results: r.results, score: [score, s2], kept: false });
+            renderTrace();
+          } else {
+            hist.push({ actions: dec.actions, results: r.results, score: [score, s2], kept: true });
+            ni.body += L(`（评分 ${scoreText(score)} → ${scoreText(s2)}）`, ` (score ${scoreText(score)} → ${scoreText(s2)})`);
+            W = r.W; rep = rep2; score = s2; keepBest();
+            ni.after = rep.fails.length;
+            pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
+            await frame();
+            if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+          }
         } else { ni.after = rep.fails.length; ni.body += L("（agent 选择不让步）", " (the agent chose not to yield)"); renderTrace(); }
       }
     }
@@ -1060,28 +1085,43 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     }
     item.body = pol.analysis;
     if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + L("（agent 没有给出新动作，循环结束）", "(no new actions from the agent; the loop ends)"); renderTrace(); break; }
-    const r = applyActions(W, pol.actions);
-    // character outranks site constraints: a round that breaks a passing character check is undone
-    const rep2 = verify(r.W, withLore ? activeLore() : null);
-    const broken = rep.checks.filter(c => c.code === "character" && c.status === "pass").filter(c => rep2.fails.some(f => f.id === c.id));
-    if (broken.length) {
-      const why = L(`本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`, `this round would break the world's character (${broken.map(c => c.label.replace("Character: ", "")).join(", ")}), rolled back`);
-      r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: why });
-      hist.push({ actions: pol.actions, results: r.results });
-      item.after = rep.fails.length; item.body += (item.body ? " " : "") + `（${why}）`;
-      item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
-      renderTrace(); await frame();
-      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
-      continue;
+    let r = applyActions(W, pol.actions), rep2 = verify(r.W, lore()), s2 = layeredScore(r.W, rep2), note = "";
+    // accept a round only if it does not make an earlier layer worse; character, then nature, then details
+    if (compareScore(s2, score) > 0) {
+      const why = L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)})`);
+      // the round's settlement moves and declarations may still help on their own, without its terrain edits
+      const keep = pol.actions.filter(a => a && (a.tool === "move_settlement" || a.tool === "declare_unsatisfiable"));
+      let partial = null;
+      if (keep.length && keep.length < pol.actions.length) {
+        const rp = applyActions(W, keep), repP = verify(rp.W, lore()), sP = layeredScore(rp.W, repP);
+        if (compareScore(sP, score) <= 0 && rankScore(sP, score) < 0) partial = { r: rp, rep: repP, s: sP };
+      }
+      if (!partial) {
+        r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: L(`${why}，已回滚`, `${why}; rolled back`) });
+        hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: false });
+        item.after = rep.fails.length; item.body += (item.body ? " " : "") + L(`（${why}，已回滚）`, `(${why}; rolled back)`);
+        item.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok && !x.outside, msg: x.msg }));
+        renderTrace(); await frame();
+        if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
+        continue;
+      }
+      r.results.push({ a: { tool: "rollback", args: { keep: "settlements" } }, ok: false, msg: L(`${why}；撤销地形和气候改动，只保留聚落移动和声明`, `${why}; terrain and climate edits undone, settlement moves and declarations kept`) });
+      note = L(`（${why}；只保留了聚落移动和声明：${scoreText(partial.s)}）`, `(${why}; kept only the settlement moves and declarations: ${scoreText(partial.s)})`);
+      r = { ...partial.r, results: r.results.concat(partial.r.results) }; rep2 = partial.rep; s2 = partial.s;
     }
-    hist.push({ actions: pol.actions, results: r.results });
-    W = r.W;
-    rep = rep2;
+    hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: true });
+    W = r.W; rep = rep2; score = s2; keepBest();
     item.after = rep.fails.length;
-    item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
+    item.body += (item.body ? " " : "") + (note || L(`（评分 ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)}）`, `(score ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)})`));
+    item.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok && !x.outside, msg: x.msg }));
     pushSnap(W, L(`${title}${it}`, `${title} ${it}`), "iter");
     await frame();
     if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
+  }
+  // small ties can drift; if an earlier version scored better, it is the one the run ends on
+  if (best.W !== W) {
+    addTrace({ kind: "done", title: L("采用最好的一版", "Best version kept"), body: L(`循环中评分最好的一版（${scoreText(best.score)}）好于最后一版（${scoreText(score)}），最终结果改用它。`, `The best-scoring version from the loop (${scoreText(best.score)}) beats the last one (${scoreText(score)}); the run ends on it.`) });
+    W = best.W; pushSnap(W, L("最好一版", "Best"), "iter");
   }
   return W;
 }
@@ -1159,12 +1199,17 @@ async function runAgent(opts = {}) {
             $("#specView").textContent = JSON.stringify(S.spec, null, 2);
           }
         }
+        let adopted = false;
         if (cr.actions.length) {
-          const r = applyActions(W, cr.actions); W = r.W;
+          // the review's edits face the same test as a repair round: kept only if the layered score does not get worse
+          const r = applyActions(W, cr.actions), s0 = layeredScore(W, verify(W, null)), s1 = layeredScore(r.W, verify(r.W, null));
           ci.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
+          if (compareScore(s1, s0) > 0) {
+            ci.actions.push({ call: "rollback()", ok: false, msg: L(`审阅的改动会让评分变差（${scoreText(s0)} → ${scoreText(s1)}），未采用`, `the review's edits would worsen the score (${scoreText(s0)} → ${scoreText(s1)}); not adopted`) });
+          } else { W = r.W; adopted = true; notes.push(L(`评分 ${scoreText(s0)} → ${scoreText(s1)}`, `score ${scoreText(s0)} → ${scoreText(s1)}`)); }
         }
         ci.body = notes.join(L("；", "; ")) + L("。", ".");
-        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
+        if (cr.add.length || adopted) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
         renderTrace();
       } catch (e) { ci.body = L("审阅失败：", "Review failed: ") + (e.message || e); }
     }
@@ -1375,8 +1420,8 @@ function editRidge() {
 // ---------- rendering: side panels ----------
 function renderScrub() {
   const el = $("#scrub");
-  el.innerHTML = S.snaps.map((s, k) => `<button type="button" data-k="${k}" aria-pressed="${k === S.cur}" class="snap ${s.kind}"><span>${esc(s.label)}</span><b>${reportOf(s).fails.length}</b></button>`).join("");
-  el.querySelectorAll("button").forEach(b => b.onclick = () => { S.cur = +b.dataset.k; S.focus = null; renderScrub(); renderMap(); renderChecks(); renderCity(); });
+  el.innerHTML = S.snaps.map((s, k) => `<button type="button" data-k="${k}" aria-pressed="${k === S.cur}" class="snap ${s.kind}" title="${esc(scoreText(scoreOf(s)))}"><span>${esc(s.label)}</span><b>${reportOf(s).fails.length}</b></button>`).join("");
+  el.querySelectorAll("button").forEach(b => b.onclick = () => { S.cur = +b.dataset.k; S.focus = null; renderScrub(); renderMap(); renderChecks(); renderCity(); renderMetrics(); });
   $("#histNote").hidden = S.cur === S.snaps.length - 1 || !S.snaps.length;
 }
 function renderMetrics() {
@@ -1388,6 +1433,7 @@ function renderMetrics() {
   const declared = rep.checks.filter(c => c.status === "declared").length;
   el.innerHTML = `
     <div><dt>${L("违规数变化", "Violations")}</dt><dd>${traj.join(" → ")}</dd></div>
+    <div><dt>${L("分层评分（越低越好）", "Layered score (lower is better)")}</dt><dd>${scoreText(scoreOf(curSnap() || last()))}</dd></div>
     <div><dt>${L("检查通过率", "Checks passed")}</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
     <div><dt>${L("声明无法满足", "Declared unsatisfiable")}</dt><dd>${declared}</dd></div>
     <div><dt>${L("Claude 调用", "Claude calls")}</dt><dd>${S.llmCalls}${L(" 次", "")}</dd></div>

@@ -237,11 +237,14 @@ function charCheck(W, c) {
   const v = mapStats(W)[c.metric], [blo, bhi] = charBounds(c);
   const strict = c.metric === "islands" ? v >= c.min && v <= c.max : v >= CHAR_LEVELS[c.level][0] && v <= CHAR_LEVELS[c.level][1];
   const pass = v >= blo && v <= bhi, slack = pass && !strict ? L("，在容差内", ", within tolerance") : "";
-  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass, measured: L(`实测 ${v} 块（预期 ${want}${slack}）`, `measured ${v} (expected ${want}${slack})`) }; }
+  // dev: how far outside the tolerated band, in percentage points (a landmass counts 5); margin: how far inside it
+  const k = c.metric === "islands" ? 5 : 100, dev = pass ? 0 : +(k * (v < blo ? blo - v : v - bhi)).toFixed(1);
+  const margin = !pass ? 0 : +(k * Math.min(blo > 0 ? v - blo : Infinity, bhi < (c.metric === "islands" ? Infinity : 1) ? bhi - v : Infinity)).toFixed(1);
+  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass, dev, margin, measured: L(`实测 ${v} 块（预期 ${want}${slack}）`, `measured ${v} (expected ${want}${slack})`) }; }
   const [lo, hi] = CHAR_LEVELS[c.level];
   const pct = x => `${Math.round(x * 100)}%`;
   const want = lo > 0 && hi >= 1 ? `≥ ${pct(lo)}` : lo > 0 ? `${pct(lo)}–${pct(hi)}` : `≤ ${pct(hi)}`;
-  return { pass, measured: L(`实测 ${pct(v)}（预期 ${want}${slack}）`, `measured ${pct(v)} (expected ${want}${slack})`) };
+  return { pass, dev, margin, measured: L(`实测 ${pct(v)}（预期 ${want}${slack}）`, `measured ${pct(v)} (expected ${want}${slack})`) };
 }
 
 // evaporation per lake cell under a climate_zone, relative to inflow (acc); LAKE_K scales inflow to lake cells
@@ -1321,8 +1324,12 @@ function verify(W, lore) {
   for (const c of spec.character || []) {
     const r = charCheck(W, c);
     add({ id: `char.${c.id}`, cat: L("特征", "character"), code: "character", target: c.id, metric: c.metric, source: c.source,
-      label: L(`整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, `Character: ${charLabel(c)}${c.source === "critic" ? " (added in review)" : ""}`), pass: r.pass, measured: r.measured, why: c.why, at: [] });
+      label: L(`整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, `Character: ${charLabel(c)}${c.source === "critic" ? " (added in review)" : ""}`), pass: r.pass, measured: r.measured, why: c.why, dev: r.dev, margin: r.margin, at: [] });
   }
+  // whether the world touches the sea at all is the author's call, and a reader sees it before anything else
+  const wantSea = spec.ocean_side !== "none";
+  add({ id: "char.sea", cat: L("特征", "character"), code: "world_sea", label: wantSea ? L("整体特征：临海", "Character: has a sea") : L("整体特征：内陆，全图无海", "Character: landlocked, no sea anywhere"),
+    pass: hasOcean === wantSea, measured: hasOcean ? L("图上有海", "the map has sea") : L("图上没有海", "the map has no sea"), at: [] });
   // physical
   add({ id: "phys.sinks", cat: L("物理", "physics"), code: "river_sink", label: L("河流必须汇入海洋、湖泊或流出图幅", "Rivers must reach the sea, a lake or the map edge"), pass: hy.sinks.length === 0, measured: hy.sinks.length ? L(`${hy.sinks.length} 处河道终止于无出口洼地`, `${hy.sinks.length} channels end in closed basins`) : L("所有河道都有出口", "every channel has an outlet"), at: hy.sinks.slice(0, 6).map(s => cellXY(s.i)) });
   for (const m of spec.mountains) {
@@ -1335,14 +1342,23 @@ function verify(W, lore) {
     const sl = slopeAt(W, i);
     add({ id: `phys.slope.${s.id}`, cat: L("物理", "physics"), code: "steep", target: s.id, label: L(`${s.name}不能建在陡坡上`, `${s.name} cannot stand on a steep slope`), pass: sl <= SLOPE_MAX, measured: L(`坡度 ${(sl * 1000).toFixed(0)}（上限 ${SLOPE_MAX * 1000}）`, `slope ${(sl * 1000).toFixed(0)} (limit ${SLOPE_MAX * 1000})`), at: [W.P.pos[s.id]] });
   }
+  // vegetation must fit the climate: rainforest and jungle need rain, so a dry or arid world keeps them to a trace
+  const czV = P.cz !== undefined ? P.cz : spec.climate_zone;
+  if (czV && (czV.humidity === "dry" || czV.humidity === "arid")) {
+    let land = 0, wet = 0; for (let i = 0; i < NN; i++) if (!W.ocean[i]) { land++; if (W.biome[i] === "rainforest" || W.biome[i] === "jungle") wet++; }
+    const sh = wet / Math.max(1, land), lim = 0.01;
+    add({ id: "phys.biome.wet", cat: L("物理", "physics"), code: "biome_climate", label: L("偏干的气候里不该有成片雨林或丛林", "A dry climate should not grow rainforest or jungle"),
+      pass: sh <= lim, dev: sh > lim ? +((sh - lim) * 100).toFixed(1) : 0,
+      measured: L(`雨林与丛林占陆地 ${(sh * 100).toFixed(1)}%（上限 ${lim * 100}%）`, `rainforest and jungle ${(sh * 100).toFixed(1)}% of land (limit ${lim * 100}%)`), at: [] });
+  }
   // spec
   for (const m of spec.mountains) {
     const [cx, cy] = regionCenter(m.region); let cnt = 0, peak = 0;
     for (let y = Math.floor(cy - N / 6); y < cy + N / 6; y++) for (let x = Math.floor(cx - N / 6); x < cx + N / 6; x++) { const i = y * N + x; if (W.ocean[i]) continue; const rel = W.h[i] - P.sea; peak = Math.max(peak, rel); if (rel > MOUNTAIN_REL) cnt++; }
-    add({ id: `spec.mtn.${m.id}`, cat: L("规格", "spec"), code: "mountain_weak", target: m.id, region: m.region, label: L(`${RG(m.region)}要有${m.name}`, `${m.name} should rise in ${RG(m.region)}`), pass: cnt >= MOUNTAIN_MIN_CELLS, measured: L(`山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, `${cnt} mountain cells (need ${MOUNTAIN_MIN_CELLS}), peak relative elevation ${peak.toFixed(2)}`), at: [[Math.round(cx), Math.round(cy)]] });
+    add({ id: `spec.mtn.${m.id}`, cat: L("规格", "spec"), code: "mountain_weak", target: m.id, region: m.region, label: L(`${RG(m.region)}要有${m.name}`, `${m.name} should rise in ${RG(m.region)}`), pass: cnt >= MOUNTAIN_MIN_CELLS, gap: clamp(1 - cnt / MOUNTAIN_MIN_CELLS, 0, 1), measured: L(`山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, `${cnt} mountain cells (need ${MOUNTAIN_MIN_CELLS}), peak relative elevation ${peak.toFixed(2)}`), at: [[Math.round(cx), Math.round(cy)]] });
   }
-  add({ id: "spec.rivers", cat: L("规格", "spec"), code: "few_rivers", label: L(`至少 ${spec.min_major_rivers} 条大河`, `At least ${spec.min_major_rivers} major rivers`), pass: hy.rivers.length >= spec.min_major_rivers, measured: L(`现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, `${hy.rivers.length} now (main stem ≥ ${MAJOR_LEN * kmOf(W)} km)`), at: [] });
-  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: L("规格", "spec"), code: "few_lakes", label: L(`至少 ${spec.min_lakes} 个湖泊`, `At least ${spec.min_lakes} lakes`), pass: hy.lakes.length >= spec.min_lakes, measured: L(`现有 ${hy.lakes.length} 个`, `${hy.lakes.length} now`), at: [] });
+  add({ id: "spec.rivers", cat: L("规格", "spec"), code: "few_rivers", label: L(`至少 ${spec.min_major_rivers} 条大河`, `At least ${spec.min_major_rivers} major rivers`), pass: hy.rivers.length >= spec.min_major_rivers, gap: clamp(1 - hy.rivers.length / Math.max(1, spec.min_major_rivers), 0, 1), measured: L(`现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, `${hy.rivers.length} now (main stem ≥ ${MAJOR_LEN * kmOf(W)} km)`), at: [] });
+  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: L("规格", "spec"), code: "few_lakes", label: L(`至少 ${spec.min_lakes} 个湖泊`, `At least ${spec.min_lakes} lakes`), pass: hy.lakes.length >= spec.min_lakes, gap: clamp(1 - hy.lakes.length / spec.min_lakes, 0, 1), measured: L(`现有 ${hy.lakes.length} 个`, `${hy.lakes.length} now`), at: [] });
   for (const s of spec.settlements) {
     const i = posIdx(W, s.id), p = W.P.pos[s.id];
     if (s.region) {
@@ -1373,8 +1389,10 @@ function verify(W, lore) {
       const detail = !g ? (ok ? L("满足", "met") : L("不满足", "not met"))
         : q2 === "accessible" ? L(`通达度 ${g.access[i].toFixed(2)}（需 ≥ ${ACCESS_T}）`, `accessibility ${g.access[i].toFixed(2)} (need ≥ ${ACCESS_T})`)
         : L(`防御性 ${g.def[i].toFixed(2)}（需 ≥ ${DEF_T}）`, `defensibility ${g.def[i].toFixed(2)} (need ≥ ${DEF_T})`);
+      // a near miss on a graded measure costs little: 5% short of the line already counts as a full miss
+      const gap = ok || !g ? 1 : clamp(5 * (1 - (q2 === "accessible" ? g.access[i] / ACCESS_T : g.def[i] / DEF_T)), 0, 1);
       add({ id, cat: L("规格", "spec"), code: "req_unmet", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
-        label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: ok, measured: detail, at: [p] });
+        label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: ok, gap, measured: detail, at: [p] });
     }
   }
   // narrative
@@ -1403,7 +1421,7 @@ function verify(W, lore) {
       const days = item.startsWith("near:") ? +item.split("@")[1] : rl.days;
       const d = travelDays(W, rl.a, rl.b), ok = d != null && d <= days;
       add({ id: `spec.rel.${rl.id}`, cat: L("规格", "spec"), code: "rel_days", target: rl.a, other: rl.b, days, source: rl.source, item, relaxed: !!rx,
-        label: L(`${A.name}到${B.name}不超过 ${days} 天${tag}`, `${A.name} within ${days} days of ${B.name}${tag}`), pass: ok, measured: d == null ? L("陆路不可达", "unreachable overland") : L(`实测 ${d} 天`, `measured ${d} days`), at: [W.P.pos[rl.a]] });
+        label: L(`${A.name}到${B.name}不超过 ${days} 天${tag}`, `${A.name} within ${days} days of ${B.name}${tag}`), pass: ok, gap: d == null ? 1 : clamp(5 * (d / days - 1), 0, 1), measured: d == null ? L("陆路不可达", "unreachable overland") : L(`实测 ${d} 天`, `measured ${d} days`), at: [W.P.pos[rl.a]] });
     }
   }
   // for settlements that fail a placement constraint, work out whether the constraint set is satisfiable at all
@@ -1422,6 +1440,39 @@ function verify(W, lore) {
   const counted = C.filter(c => c.status !== "declared" && c.status !== "relaxed");
   return { checks: C, fails, rate: counted.length ? counted.filter(c => c.pass).length / counted.length : 1 };
 }
+
+// ---------- layered score ----------
+// A map is judged in three layers, compared in order: the world as a whole (character shares, sea or no sea), then
+// natural plausibility (physics, vegetation that fits the climate), then the details (settlement sites, relations,
+// ranges, river and lake counts, lore). Each layer adds up how far its failing checks miss rather than how many fail:
+// a share 12 points outside its band weighs 12 and a town 0.4% short of the accessibility line almost nothing. Details
+// the author wrote weigh 1 and ones the planner inferred 0.5, times 0.6 for anything the planner invented outright.
+// Declaring a check unsatisfiable halves its detail weight and changes nothing in the first two layers: the reader still
+// sees the map.
+const LAYER_OF = { character: 0, world_sea: 0, river_sink: 1, rain_shadow: 1, underwater: 1, steep: 1, biome_climate: 1 };
+const SCORE_EPS = [1, 0.5, 0.25];          // differences this small within a layer count as a tie
+function layeredScore(W, rep) {
+  const sc = [0, 0, 0];
+  for (const c of rep.checks) {
+    if (c.status !== "fail" && c.status !== "declared") continue;
+    const layer = LAYER_OF[c.code] ?? 2;
+    if (layer === 0) sc[0] += c.code === "world_sea" ? 50 : c.dev ?? 10;
+    else if (layer === 1) sc[1] += 1 + (c.dev || 0) / 5;
+    else {
+      const ent = W.spec.settlements.find(q => q.id === c.target) || W.spec.mountains.find(q => q.id === c.target);
+      sc[2] += (c.source === "proposed" ? 0.5 : 1) * (ent && ent.invented ? 0.6 : 1) * (c.gap ?? 1) * (c.status === "declared" ? 0.5 : 1);
+    }
+  }
+  return sc.map(x => +x.toFixed(2));
+}
+// < 0 when score a is better than b, > 0 when worse, 0 when every layer ties within its tolerance
+function compareScore(a, b) {
+  for (let k = 0; k < 3; k++) { const d = a[k] - b[k]; if (d < -SCORE_EPS[k]) return -1; if (d > SCORE_EPS[k]) return 1; }
+  return 0;
+}
+// a strict order for keeping the best version: the tolerant comparison first, then the raw numbers layer by layer
+function rankScore(a, b) { return compareScore(a, b) || (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]); }
+const scoreText = sc => L(`特征 ${sc[0]} · 自然 ${sc[1]} · 细节 ${sc[2]}`, `character ${sc[0]} · nature ${sc[1]} · detail ${sc[2]}`);
 
 // ---------- tools ----------
 const MOVE_TARGETS = ["nearest_coast", "nearest_river", "nearest_river_mouth", "nearest_lake", "near_mountain", "flattest_nearby", "accessible", "defensible"];
@@ -1568,6 +1619,8 @@ function resite(W0, W1, s) {
   if (!why.length) return null;
   const from = W1.P.pos[s.id].slice(), keep = Object.keys(b.reqs).filter(q => a.reqs[q]).map(q => REQ_TARGET[q]);
   let r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: keep } });
+  // a town still on dry ground does not get flung out of its region to keep a requirement: it stays and fails it
+  if (r.ok && r.outside && b.dry) { W1.P.pos[s.id] = from; r = { ok: false }; }
   if (!r.ok && !b.dry) r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: [] } });
   const head = L(`地形变化后${s.name}${why.join("、")}`, `After the terrain change ${s.name} ${why.join(", ")}`);
   return { a: { tool: "resite", args: { id: s.id } }, ok: r.ok, auto: true, from, to: W1.P.pos[s.id].slice(),
@@ -1830,5 +1883,5 @@ function describeSpec(sp) {
     + s.settlements.map(t => `${RG(t.region)}有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
 }
 
-if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
+if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
 // ===================== END CORE =====================
