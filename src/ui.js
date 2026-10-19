@@ -216,6 +216,7 @@ function initControls() {
   $("#stop").onclick = () => { if (S.ctl) S.ctl.abort(); };
   $("#loreBtn").onclick = () => genLore();
   $("#moveBtn").onclick = () => editMove();
+  $("#restoreSnap").onclick = () => restoreSnap();
   $("#ridgeBtn").onclick = () => editRidge();
   $("#styleEra").onchange = () => { $("#stylePat").value = ERA_DEFAULT[$("#styleEra").value].street_pattern; };
   $("#restyleBtn").onclick = () => restyle();
@@ -351,6 +352,8 @@ const I18N_EN = {
   "底图": "Base", "地图册": "Atlas", "地形浮雕": "Relief", "高程": "Elevation", "水系": "Water", "聚落": "Towns", "违规标记": "Violations", "分区": "Grid",
   "生成的区域地图（平面）": "Generated region map (flat)", "生成的区域地图（3D 沙盘，可用方向键旋转）": "Generated region map (3D, arrow keys rotate)", "游戏风格地图": "Game-style map",
   "正在看历史快照；编辑总是基于最新一版": "Viewing an earlier snapshot; edits always apply to the latest",
+  "恢复这一版": "Restore this version",
+  "把正在看的这一版复制为最新一版；之后的编辑都基于它，原来的各版仍留在时间线上": "Copy the version you are viewing to the end as the latest; later edits build on it, and every other version stays in the timeline",
   "把鼠标移到地图上查看格点信息。": "Hover the map to read a cell.", "迭代快照": "Iteration snapshots",
   "验证与修正": "Verification and repair", "检查结果": "Checks", "城市详图": "City plans",
   "每个聚落都会按地形、水系和进城道路生成规划：先划分功能片区，街道网格对齐主干道，再放置广场、教堂、医院等地标。点击地图上的城镇也能切换到这里。把鼠标移到图例上可以单独突出某一类片区。":
@@ -1349,6 +1352,18 @@ function editMove() {
   const id = $("#editS").value, reg = $("#editR").value;
   const r = applyActions(sn.W, [{ tool: "move_settlement", args: { id, targets: ["region:" + reg] } }]);
   afterEdit(sn.W, r, L("编辑", "Edit"), L(`把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`, `Moved ${nameOf(sn.W, id)} to ${RG(reg)}`));
+}
+// Undo without losing anything: the version being viewed is copied to the end of the timeline as the latest, so the
+// steps after it stay visible and a restore can itself be undone by restoring the one before it.
+function restoreSnap() {
+  const sn = curSnap(); if (!sn || S.running || S.cur === S.snaps.length - 1) return;
+  S.spec = sn.W.spec; $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+  pushSnap(sn.W, L(`恢复：${sn.label}`, `Restored: ${sn.label}`), "edit");
+  claimStatuses(sn.W); bumpLore();
+  const n = reportOf(last()).fails.length;
+  $("#editResult").textContent = L(`已恢复到「${sn.label}」，当前违规 ${n} 项。`, `Restored "${sn.label}"; ${n} violations now.`);
+  addTrace({ kind: "edit", title: L("撤销", "Undo"), body: L(`把地图恢复到「${sn.label}」那一版（${n} 项违规）。之后的编辑都基于这一版，原来的各版仍留在时间线上。`, `Restored the map to "${sn.label}" (${n} violations). Later edits build on it; every other version stays in the timeline.`) });
+  fillEditSelects(); refreshAll(); saveRecord();
 }
 function editRidge() {
   const sn = last(); if (!sn || S.running) return;

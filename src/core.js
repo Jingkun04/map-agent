@@ -1476,7 +1476,7 @@ function applyActions(W, actions) {
   const order = ["relax_constraint", "declare_unsatisfiable", "set_landform", "set_climate", "set_sea_level", "raise_ridge", "carve_basin", "recompute_climate", "fill_depressions", "set_river_threshold"];
   const acts = (Array.isArray(actions) ? actions : []).slice(0, 12).map(a => ({ tool: String(a && a.tool || ""), args: (a && a.args) || {} }));
   acts.sort((a, b) => (order.indexOf(a.tool) + 99) % 99 - (order.indexOf(b.tool) + 99) % 99);
-  let terrainChanged = false, landformChanged = false;
+  let terrainChanged = false;
   for (const a of acts) {
     const g = a.args;
     switch (a.tool) {
@@ -1503,7 +1503,7 @@ function applyActions(W, actions) {
         const inland = spec.ocean_side === "none";
         if (inland !== (LANDFORM_SIDE[lf] === "none")) { results.push({ a, ok: false, msg: inland ? L(`这是内陆世界，不能换成有海的「${LANDFORM_ZH[lf]}」`, `this world is landlocked; it cannot become "${LANDFORM_ZH[lf]}", which has sea`) : L(`这个世界临海，不能换成内陆的「${LANDFORM_ZH[lf]}」`, `this world has sea; it cannot become the landlocked "${LANDFORM_ZH[lf]}"`) }); break; }
         const was = P.landform !== undefined ? P.landform : spec.landform;
-        P.landform = lf; terrainChanged = true; landformChanged = true;
+        P.landform = lf; terrainChanged = true;
         results.push({ a, ok: true, msg: L(`地形模板 ${LANDFORM_ZH[was] || "默认海岸"} → ${LANDFORM_ZH[lf]}`, `landform ${LANDFORM_ZH[was] || "default coast"} → ${LANDFORM_ZH[lf]}`) }); break;
       }
       case "set_climate": {
@@ -1538,11 +1538,40 @@ function applyActions(W, actions) {
     }
   }
   const W2 = derive(spec, P);
-  // a new landform can leave towns at sea: pull each back to the nearest dry, flat ground in its region
-  if (landformChanged) for (const st of spec.settlements) if (!isDry(W2, posIdx(W2, st.id)) && !moves.some(m => String(m.args.id) === st.id))
-    results.push(moveSettlement(W2, { tool: "move_settlement", args: { id: st.id, targets: [] } }));
+  // the ground changed under the settlements: re-site every one the change broke (explicit moves handle their own)
+  if (terrainChanged) for (const st of spec.settlements) if (!moves.some(m => String(m.args.id) === st.id)) {
+    const r = resite(W, W2, st); if (r) results.push(r);
+  }
   for (const a of moves) results.push(moveSettlement(W2, a));
   return { W: W2, results, terrainChanged };
+}
+// How a settlement sits on its ground: the site must be dry and not steep, and each of its own site requirements
+// (coast, on_river, accessible...) either holds there or not. Relaxed items count in their weaker form; requirements
+// declared unsatisfiable are left out.
+function siteState(W, s) {
+  const i = posIdx(W, s.id), reqs = {};
+  for (const t of ownedItems(W.spec, s)) {        // check ids follow the original item, the test follows its relaxed form
+    const r = relaxFind(W.P, s.id, t), q = r ? r.to : t;
+    if (q && REQ_TEST[q] && !W.P.unsat.includes(`spec.req.${s.id}.${t}`)) reqs[q] = REQ_TEST[q](W, i);
+  }
+  return { dry: isDry(W, i), steep: slopeAt(W, i) > SLOPE_MAX, reqs };
+}
+// After a terrain change, compare each site on the old and the new ground. A site that is now under water, newly
+// steep, or has lost a requirement it used to meet moves to the nearest ground that keeps every requirement it met
+// before; if no such ground exists, a flooded town still goes to the nearest dry, flat cell. Sites that were already
+// failing for other reasons are left alone: that is the repair agent's call. Returns null when nothing changed.
+function resite(W0, W1, s) {
+  const a = siteState(W0, s), b = siteState(W1, s);
+  const lost = Object.keys(b.reqs).filter(q => a.reqs[q] && !b.reqs[q]);
+  const why = [!b.dry ? L("落入水中", "is now under water") : null, b.dry && b.steep && !a.steep ? L("变成陡坡", "is now on a steep slope") : null,
+    ...lost.map(q => L(`失去「${ITEM_ZH(q)}」`, `lost "${ITEM_ZH(q)}"`))].filter(Boolean);
+  if (!why.length) return null;
+  const from = W1.P.pos[s.id].slice(), keep = Object.keys(b.reqs).filter(q => a.reqs[q]).map(q => REQ_TARGET[q]);
+  let r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: keep } });
+  if (!r.ok && !b.dry) r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: [] } });
+  const head = L(`地形变化后${s.name}${why.join("、")}`, `After the terrain change ${s.name} ${why.join(", ")}`);
+  return { a: { tool: "resite", args: { id: s.id } }, ok: r.ok, auto: true, from, to: W1.P.pos[s.id].slice(),
+    msg: r.ok ? `${head} → ${L("自动重新选址：", "re-sited: ")}${r.msg}` : `${head}${L("，附近没有合适的位置，留在原处", "; no suitable ground nearby, left in place")}` };
 }
 function moveSettlement(W, a) {
   const id = String(a.args.id || ""); const s = W.spec.settlements.find(q => q.id === id);
