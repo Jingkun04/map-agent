@@ -26,7 +26,7 @@ const NAMES_EN = {
   RIVER_NAMES: ["Greywater", "Willow Brook", "Blackstone", "Silverband", "Mistrun", "Redmud", "Heron River", "Coldspring", "Whitesand", "Reedwither", "Longmere", "Singing Brook"],
   LAKE_NAMES: ["Mirror Lake", "Sunken Bell", "Reedpond", "Coldtarn", "Crescent Mere", "Greyeye Lake", "Bottomless Tarn", "Crane Lake"],
   DIRS8: ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"],
-  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains", basin: "mountain-ringed basin", bay: "gulf coast", two_coasts: "two-sea coast" },
+  LANDFORM_ZH: { coast: "coast", continent: "sea-ringed continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains", basin: "mountain-ringed basin", bay: "gulf coast", two_coasts: "two-sea coast" },
   CHAR_METRICS: { land_share: "land share of map", lake_share: "lakes, share of land", mountain_share: "mountains, share of land", desert_share: "desert and salt flat, share of land", grass_share: "grassland, share of land", forest_share: "forest, share of land", cold_share: "ice and tundra, share of land", wetland_share: "marsh, share of land", islands: "landmasses" },
   CHAR_LEVEL_ZH: { none: "almost none", low: "low", moderate: "moderate", high: "high", dominant: "dominant" },
 };
@@ -167,7 +167,7 @@ function initParams(spec) {
 // Sea primitives (sea, channel) push d up. Relief primitives (pit, peak, rift, lift) add to the elevation afterwards.
 const COAST_D = 0.72;
 const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland", "plains", "basin", "bay", "two_coasts"];
-const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原", basin: "群山盆地", bay: "大海湾", two_coasts: "两面临海" };
+const LANDFORM_ZH = { coast: "海岸", continent: "环海大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原", basin: "群山盆地", bay: "大海湾", two_coasts: "两面临海" };
 // one sea side, two (a corner such as NE, or opposite sides NS / EW), sea all round, or none
 const OCEAN_SIDES = ["E", "W", "N", "S", "NE", "NW", "SE", "SW", "NS", "EW", "all", "none"];
 const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none", plains: "none", basin: "none", bay: "E", two_coasts: "NE" };
@@ -659,7 +659,20 @@ function priorityFlood(h, ocean) {
   }
   return surf;
 }
-function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0) {
+// Water the land yields, the same everywhere on the map: precipitation set by the climate's humidity (or P.rain)
+// times what survives evaporation at its temperature. In dry climates a channel also loses part of its flow to
+// evaporation and seepage on each km downstream, so small rivers die out in the desert and only big ones cross it.
+// Without a climate_zone or P.rain the old per-cell yield (0.3 + moisture, no losses) stands, so worlds derive as before.
+const RAIN_YIELD = { arid: 0.12, dry: 0.35, normal: 0.78, humid: 1.1 };
+const RAIN_TEMP = { polar: 1.1, cold: 1.05, temperate: 1, warm: 0.85, hot: 0.7 };
+const LOSS_PER_KM = { arid: 0.003, dry: 0.001, normal: 0, humid: 0 };
+function runoffOf(P, cz, km) {
+  if (!cz && P.rain === undefined) return null;
+  const c = cz || { temperature: "temperate", humidity: "normal" };
+  const rain = P.rain !== undefined ? clamp(+P.rain, 0, 2) : RAIN_YIELD[c.humidity];
+  return { q: +(rain * RAIN_TEMP[c.temperature]).toFixed(3), keep: Math.pow(1 - LOSS_PER_KM[c.humidity], km) };
+}
+function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0, water = null) {
   const RN = names && names.rivers && names.rivers.length ? names.rivers : RIVER_NAMES, LN = names && names.lakes && names.lakes.length ? names.lakes : LAKE_NAMES;
   const surf = P.hydro === "filled" ? priorityFlood(h, ocean) : Float32Array.from(h);
   const down = new Int32Array(NN).fill(-1);
@@ -677,8 +690,9 @@ function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0) {
     const keys = new Float64Array(land.length); for (let k = 0; k < land.length; k++) keys[k] = Math.floor(-surf[land[k]] * 1e7) * 1048576 + land[k];
     keys.sort(); for (let k = 0; k < land.length; k++) { const v = keys[k]; land[k] = v - Math.floor(v / 1048576) * 1048576; } }
   const acc = new Float32Array(NN);
-  for (const i of land) acc[i] += 0.3 + moist[i];
-  for (const i of land) { const d = down[i]; if (d >= 0 && !ocean[d]) acc[d] += acc[i]; }
+  for (const i of land) acc[i] += water ? water.q : 0.3 + moist[i];
+  const keep = water ? water.keep : 1;
+  for (const i of land) { const d = down[i]; if (d >= 0 && !ocean[d]) acc[d] += acc[i] * keep; }
   // lakes
   const lake = new Uint8Array(NN), lakes = [], playa = new Uint8Array(NN);
   if (P.hydro === "filled") {
@@ -896,7 +910,8 @@ function derive(spec, P) {
   const moist = buildMoisture(spec, P, h, ocean);
   const cz = P.cz !== undefined ? P.cz : spec.climate_zone;        // P.cz: climate set by the repair agent (null = temperate)
   if (cz) { const [mul, add] = CLIMATE_W[cz.humidity]; for (let i = 0; i < NN; i++) moist[i] = clamp(moist[i] * mul + add, 0.02, 0.98); }
-  const hy = buildHydro(P, h, moist, ocean, spec.names, (SCALES[spec.scale] || SCALES.region).km, cz ? EVAP_W[cz.humidity] * EVAP_T[cz.temperature] : 0);
+  const km = (SCALES[spec.scale] || SCALES.region).km;
+  const hy = buildHydro(P, h, moist, ocean, spec.names, km, cz ? EVAP_W[cz.humidity] * EVAP_T[cz.temperature] : 0, runoffOf(P, cz, km));
   const biome = new Array(NN);
   const dt = cz ? CLIMATE_T[cz.temperature] : null;
   // riparian green: in a dry climate the banks of rivers and lakes stay wet enough for grass and trees — the oases
@@ -1505,12 +1520,12 @@ const TOOL_DOC = `fill_depressions()  — switch hydrology to priority-flood: de
 recompute_climate()  — replace noise moisture with an orographic model driven by wind_from (creates rain shadows).
 raise_ridge(region, amount)  — raise the mountain ridge in a region (amount 0.02–0.2); creates a ridge if none exists there.
 carve_basin(region)  — dig a shallow basin in a region; after fill_depressions it becomes a lake.
-set_river_threshold(value)  — flow accumulation needed to draw a river (current value given). Lower = a denser network everywhere, so it is a last resort: when channels end in closed basins, fill_depressions alone usually creates the major rivers, so fill first and look. Lowering is refused in the round that also fills, and while there are enough major rivers and every settlement needing a river has one in its region; it can drop by at most 40% per call and never below the climate's floor (arid 220, dry 150, normal 90, humid 60). For a town that must be on a river, move_settlement it with nearest_river instead.
+set_river_threshold(value)  — flow accumulation needed to draw a river (current value given). Lower = a denser network everywhere, so it is a last resort: when channels end in closed basins, fill_depressions alone usually creates the major rivers, so fill first and look. Lowering is refused in the round that also fills, and while there are enough major rivers and every settlement needing a river has one in its region; it can drop by at most 40% per call (60% while major rivers are missing) and never below the climate's floor, which keeps dry lands to a few large rivers. For a town that must be on a river, move_settlement it with nearest_river instead.
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
 declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
 set_landform(landform)  — rebuild land and sea from another template. With sea: coast | bay (coast with one large gulf) | two_coasts (sea on two sides) | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | basin (lowland ringed by mountains) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
-set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome; under a dry climate, lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
+set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome and sets how much water the land yields: drier and hotter means fewer and shorter rivers, and in a dry or arid climate rivers lose water on the way, so only large ones cross the desert; lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
 // The negotiator's only tool. It is deliberately not in TOOL_DOC: the repair agent edits terrain, the negotiator
 // edits the goal, and keeping the two tool sets apart is what makes the stage separable in an ablation.
 const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of a settlement's constraints for a weaker one instead of failing it.
@@ -1520,12 +1535,21 @@ const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of 
   reason: one Chinese sentence naming what in the description justifies the trade.
   The tool refuses any item the solver did not put in a conflict core, any swap that is not a weakening, and any call without a reason.`;
 
-// Lowering the river threshold thickens the whole network at once, so it is the last resort, not the first: a dry
-// world gets a higher floor, one call can cut the value by at most 40%, and it is refused while it cannot help.
+// Lowering the river threshold thickens the whole network at once, so it is the last resort, not the first: there is
+// a floor, one call can cut the value by at most 40% (60% while major rivers are still missing), and it is refused
+// while it cannot help.
 // Two cases where it cannot: hydrology is still unfilled and this same round fills it (every channel used to end in a
 // closed basin, and filling alone usually yields the major rivers, so look first), or the map already has enough
 // major rivers and every settlement that needs one has a river in its own region (move the town instead).
-const RIVER_FLOOR = { arid: 220, dry: 150, normal: 90, humid: 60 };
+// The floor is a smallest catchment, in cells, that may count as a river: larger in a dry climate, where only big
+// rivers should show. With the climate's runoff model the threshold is in water units, so the catchment is turned into
+// water by the per-cell yield (the yield already makes dry lands need far more ground per river); without a climate the
+// old fixed floor of 90 applies.
+const RIVER_FLOOR_CELLS = { arid: 600, dry: 300, normal: 115, humid: 80 };
+function riverFloor(P, spec, W) {
+  const cz = P.cz !== undefined ? P.cz : spec.climate_zone, water = runoffOf(P, cz, kmOf(W));
+  return water ? Math.max(10, Math.round(RIVER_FLOOR_CELLS[(cz || {}).humidity || "normal"] * water.q)) : 90;
+}
 function riverLowerBlock(W, P, acts) {
   if (W.P.hydro !== "filled" && acts.some(a => a.tool === "fill_depressions"))
     return ["本轮已经在填洼，先看填洼后形成的河流再决定", "this round already fills depressions; see the rivers that makes first"];
@@ -1587,12 +1611,13 @@ function applyActions(W, actions) {
         results.push({ a, ok: true, msg: L(`气候 ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`, `climate ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`) }); break;
       }
       case "set_river_threshold": {
-        let v = clamp(Math.round(+g.value || P.riverThr), 60, 800);
+        const floor = riverFloor(P, spec, W), short = W.hy.rivers.length < spec.min_major_rivers;
+        let v = clamp(Math.round(+g.value || P.riverThr), Math.min(60, floor), 800);
         if (v < P.riverThr) {
           const why = riverLowerBlock(W, P, acts);
           if (why) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：${why[0]}`, `river threshold stays ${P.riverThr}: ${why[1]}`) }); break; }
-          const cz = (P.cz !== undefined ? P.cz : spec.climate_zone) || { humidity: "normal" }, floor = RIVER_FLOOR[cz.humidity] || 90;
-          v = Math.max(v, Math.round(P.riverThr * 0.6), floor);
+          // a bigger step is allowed while the map still lacks the major rivers it needs
+          v = Math.max(v, Math.round(P.riverThr * (short ? 0.4 : 0.6)), floor);
           if (v >= P.riverThr) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：已到这种气候的下限 ${floor}`, `river threshold stays ${P.riverThr}: already at this climate's floor of ${floor}`) }); break; }
         }
         results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break;

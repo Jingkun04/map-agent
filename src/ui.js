@@ -650,7 +650,8 @@ R is one of NW, N, NE, W, C, E, SW, S, SE (a 3x3 grid, north is up). The map is 
 ground it covers: region = 1024 km across (a province), kingdom = 2048 km, continent = 4096 km.
 
 landform — the shape of land and sea, drawn fresh from the seed each time:
-  coast: mainland with the sea on ocean_side, bays and offshore islets · continent: one large landmass ringed by sea
+  coast: mainland with the sea on ocean_side, bays and offshore islets
+  continent: one island continent with sea on every side (Australia) — about the sea, not about size or scale
   bay: mainland with the sea on ocean_side and one large gulf reaching deep inland through a narrower mouth
   two_coasts: sea on two sides — a corner of land (ocean_side NE, NW, SE, SW) or a strip between two seas (NS, EW)
   archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
@@ -731,6 +732,11 @@ You do five jobs at once. Do the first one first: everything after it must serve
    much taller structures. Pick "landmarks" as the vocabulary that fits that world.
 
 Rules:
+- Land and sea come from what the description says about the sea. If it names no sea, use a landlocked template
+  (plains, basin, lakeland, highland) when it says inland, and otherwise coast, bay or two_coasts with the sea on the
+  side that fits the setting. Put sea on every side (continent, islands, archipelago, volcanic_island, isthmus,
+  shattered) only when the description says so: an island, an island realm, a land surrounded by ocean. An empire, a
+  large country or scale "continent" is not a reason for it.
 - ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
   "none" for plains, basin, lakeland and highland, the sea side for coast, bay, fjords and peninsula, and the two
   sides for two_coasts.
@@ -743,7 +749,7 @@ Rules:
   height) rarely hold there, so on archipelagos and small islands prefer coast, river_mouth and on_river for the
   settlements you invent. Set min_lakes above 0 only when the description names lakes or the landform is lakeland.
 - "lakeland" means a country of many large lakes (Finland, Canadian shield). A desert with oases is NOT lakeland: use
-  plains, highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
+  plains, basin, highland, coast or bay with an arid climate_zone; the generator's water balance then keeps only small lakes
   (the oases) and dries the rest of each basin into salt flats. Oasis towns can require "lakeside" or "on_river".
 - min_major_rivers follows the description: the number it names, otherwise 1 for deserts and arid or dry lands, 2 for a
   temperate land, 3 or more only when the description stresses rivers. Every extra river the map must have pushes the
@@ -808,7 +814,8 @@ function regionSummary(W) {
 
 async function llmRepair(W, rep, hist, fb, item) {
   const params = {
-    sea_level: +W.P.sea.toFixed(2), hydrology: W.P.hydro, climate: W.P.climate, river_threshold: W.P.riverThr,
+    sea_level: +W.P.sea.toFixed(2), hydrology: W.P.hydro, climate: W.P.climate, river_threshold: W.P.riverThr, river_threshold_floor: riverFloor(W.P, W.spec, W),
+    water_per_cell: (runoffOf(W.P, W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone, kmOf(W)) || { q: "0.3 + moisture (no climate set)" }).q,
     ridges: W.P.ridges.map(r => ({ region: r.region, orientation: r.orientation, amp: +r.amp.toFixed(2) })),
     basins: W.P.basins.map(b => b.region), declared_unsatisfiable: W.P.unsat,
     landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)",
