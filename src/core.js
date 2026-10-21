@@ -1505,7 +1505,7 @@ const TOOL_DOC = `fill_depressions()  — switch hydrology to priority-flood: de
 recompute_climate()  — replace noise moisture with an orographic model driven by wind_from (creates rain shadows).
 raise_ridge(region, amount)  — raise the mountain ridge in a region (amount 0.02–0.2); creates a ridge if none exists there.
 carve_basin(region)  — dig a shallow basin in a region; after fill_depressions it becomes a lake.
-set_river_threshold(value)  — flow accumulation needed to draw a river (60–800, current value given). Lower = more and longer rivers.
+set_river_threshold(value)  — flow accumulation needed to draw a river (current value given). Lower = a denser network everywhere, so it is a last resort: when channels end in closed basins, fill_depressions alone usually creates the major rivers, so fill first and look. Lowering is refused in the round that also fills, and while there are enough major rivers and every settlement needing a river has one in its region; it can drop by at most 40% per call and never below the climate's floor (arid 220, dry 150, normal 90, humid 60). For a town that must be on a river, move_settlement it with nearest_river instead.
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
 declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
@@ -1520,6 +1520,28 @@ const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of 
   reason: one Chinese sentence naming what in the description justifies the trade.
   The tool refuses any item the solver did not put in a conflict core, any swap that is not a weakening, and any call without a reason.`;
 
+// Lowering the river threshold thickens the whole network at once, so it is the last resort, not the first: a dry
+// world gets a higher floor, one call can cut the value by at most 40%, and it is refused while it cannot help.
+// Two cases where it cannot: hydrology is still unfilled and this same round fills it (every channel used to end in a
+// closed basin, and filling alone usually yields the major rivers, so look first), or the map already has enough
+// major rivers and every settlement that needs one has a river in its own region (move the town instead).
+const RIVER_FLOOR = { arid: 220, dry: 150, normal: 90, humid: 60 };
+function riverLowerBlock(W, P, acts) {
+  if (W.P.hydro !== "filled" && acts.some(a => a.tool === "fill_depressions"))
+    return ["本轮已经在填洼，先看填洼后形成的河流再决定", "this round already fills depressions; see the rivers that makes first"];
+  if (W.hy.rivers.length < W.spec.min_major_rivers) return null;
+  // a town that needs a river, or a river mouth on the sea, in a region that has none
+  const dry = W.spec.settlements.filter(s => {
+    const items = effItems(W.P, W.spec, s), reg = effRegion(W.P, s) || regionOf(...W.P.pos[s.id]);
+    return (items.includes("on_river") && !regionHasRiver(W, reg)) || (items.includes("river_mouth") && !W.hy.rivers.some(r => r.kind === "sea" && r.mouthRegion === reg));
+  });
+  if (dry.length) return null;
+  return ["大河数量已够，需要临河的聚落所在区域也都有河；请用 move_settlement 把聚落移到河边", "there are enough major rivers and every settlement that needs one has a river in its region; move the settlement with move_settlement"];
+}
+function regionHasRiver(W, region) {
+  for (let i = 0; i < NN; i++) if (W.hy.channel[i] && !W.hy.lake[i] && regionOf(i % N, Math.floor(i / N)) === region) return true;
+  return false;
+}
 function applyActions(W, actions) {
   const spec = W.spec; const P = deep(W.P); const results = [];
   P.relaxed = P.relaxed || [];
@@ -1564,7 +1586,17 @@ function applyActions(W, actions) {
         const T = L({ polar: "极寒", cold: "寒冷", temperate: "温和", warm: "温暖", hot: "炎热" }, { polar: "polar ", cold: "cold ", temperate: "temperate ", warm: "warm ", hot: "hot " }), H = L({ arid: "干旱", dry: "偏干", normal: "适中", humid: "湿润" }, { arid: "arid", dry: "dry", normal: "moderate", humid: "humid" });
         results.push({ a, ok: true, msg: L(`气候 ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`, `climate ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`) }); break;
       }
-      case "set_river_threshold": { const v = clamp(Math.round(+g.value || P.riverThr), 60, 800); results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break; }
+      case "set_river_threshold": {
+        let v = clamp(Math.round(+g.value || P.riverThr), 60, 800);
+        if (v < P.riverThr) {
+          const why = riverLowerBlock(W, P, acts);
+          if (why) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：${why[0]}`, `river threshold stays ${P.riverThr}: ${why[1]}`) }); break; }
+          const cz = (P.cz !== undefined ? P.cz : spec.climate_zone) || { humidity: "normal" }, floor = RIVER_FLOOR[cz.humidity] || 90;
+          v = Math.max(v, Math.round(P.riverThr * 0.6), floor);
+          if (v >= P.riverThr) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：已到这种气候的下限 ${floor}`, `river threshold stays ${P.riverThr}: already at this climate's floor of ${floor}`) }); break; }
+        }
+        results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break;
+      }
       case "set_sea_level": { const v = clamp(+g.value || P.sea, 0.30, 0.50); results.push({ a, ok: true, msg: L(`海平面 ${P.sea.toFixed(2)} → ${v.toFixed(2)}`, `sea level ${P.sea.toFixed(2)} → ${v.toFixed(2)}`) }); P.sea = v; terrainChanged = true; break; }
       case "declare_unsatisfiable": { const id = String(g.check_id || ""); if (!P.unsat.includes(id)) P.unsat.push(id); results.push({ a, ok: true, msg: L(`声明无法满足：${id}`, `declared unsatisfiable: ${id}`) }); break; }
       case "relax_constraint": {

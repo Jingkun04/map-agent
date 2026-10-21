@@ -718,6 +718,9 @@ You do five jobs at once. Do the first one first: everything after it must serve
      a prosperous trading town needs "accessible" — wealth follows traffic, and a town walled in by mountains cannot trade
      a border fortress needs "defensible" — it exists to hold ground
      a mill town belongs on a river; a fishing village belongs on the coast
+   Use on_river and river_mouth sparingly: only for a settlement whose role depends on a river (mill, ferry, river port,
+   irrigated fields) or that the description puts on one — about a third of the settlements at most. Give invented
+   settlements other requirements where they fit just as well (accessible, near_mountain, coast, defensible).
    Propose only what the seven checkable site predicates can express. Do NOT propose relations between settlements
    here: the rivers and roads do not exist yet. Atmosphere ("常年有雾", "闹鬼的矿镇") is NOT a constraint.
    Proposed and invented items are relaxed before explicit ones when something is impossible, so a guess is cheap.
@@ -742,6 +745,9 @@ Rules:
 - "lakeland" means a country of many large lakes (Finland, Canadian shield). A desert with oases is NOT lakeland: use
   plains, highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
   (the oases) and dries the rest of each basin into salt flats. Oasis towns can require "lakeside" or "on_river".
+- min_major_rivers follows the description: the number it names, otherwise 1 for deserts and arid or dry lands, 2 for a
+  temperate land, 3 or more only when the description stresses rivers. Every extra river the map must have pushes the
+  generator to thicken the whole river network.
 - At most 8 mountains and 20 settlements; seed is any integer from 1 to 99999.
 - If the description asks for something impossible (a port in a landlocked region), keep it anyway: the verifier
   will find the conflict and report it. Never quietly fix the user's intent.
@@ -855,7 +861,7 @@ alone: they pass now but have only a few points left. If a town's requirement ca
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
 the character expectation; a declared detail still costs half its weight, and declaring a character or nature check
 changes nothing in the score.
-A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
+A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (raise a ridge, carve a basin; lower the river threshold only if that region has no river at all) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
   const out = await llmJSON(prompt, L("决定修正动作", "choosing repairs"), item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
 }
