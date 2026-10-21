@@ -1487,6 +1487,17 @@ function compareScore(a, b) {
 }
 // a strict order for keeping the best version: the tolerant comparison first, then the raw numbers layer by layer
 function rankScore(a, b) { return compareScore(a, b) || (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]); }
+// A worse round need not be thrown away outright: a small step back now can open a route the strict rule never lets
+// the loop reach. The layers are folded into one cost in detail units (a character point weighs one detail miss, a
+// nature failure two), so a round that loses 2 points of character but fixes 2 towns costs little, and one that
+// floods the map costs ~40. It is kept with probability exp(-cost / T), a Metropolis step whose temperature cools
+// round by round, so early rounds may explore and late ones settle. The loop still ends on the best version it saw.
+const SOFT_W = [1, 2, 1], SOFT_T0 = 1.5, SOFT_COOL = 0.75;
+function softAccept(a, b, it, seed) {
+  const cost = SOFT_W.reduce((s, w, k) => s + w * (a[k] - b[k]), 0), temp = SOFT_T0 * SOFT_COOL ** (it - 1);
+  const p = cost <= 0 ? 1 : Math.exp(-cost / temp), u = rng(seed * 7919 + it * 104729)();
+  return { cost: +cost.toFixed(2), temp: +temp.toFixed(2), p, ok: u < p };
+}
 const scoreText = sc => L(`特征 ${sc[0]} · 自然 ${sc[1]} · 细节 ${sc[2]}`, `character ${sc[0]} · nature ${sc[1]} · detail ${sc[2]}`);
 
 // ---------- tools ----------
@@ -1940,5 +1951,5 @@ function describeSpec(sp) {
     + s.settlements.map(t => `${RG(t.region)}有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
 }
 
-if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
+if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, softAccept, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
 // ===================== END CORE =====================

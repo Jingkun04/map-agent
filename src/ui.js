@@ -341,7 +341,7 @@ const I18N_EN = {
   "key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。": "The key is never written into the page or sent anywhere except with requests to openrouter.ai.",
   "模型档位": "Model tier", "高级设置（实验用）": "Advanced (for experiments)", "验证器给 agent 的反馈": "Verifier feedback to the agent",
   "结构化违规报告": "Structured violation report", "只告诉通过或不通过": "Pass / fail only", "不反馈，只生成一次": "No feedback, generate once",
-  "最多迭代轮数": "Max iterations", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
+  "最多迭代轮数": "Max iterations", "评分变差的一轮": "A round that worsens the score", "按变差程度以一定概率接受（越差越难）": "Keep it with a chance that falls as it gets worse", "一律回滚": "Always roll it back", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
   "地图": "Map", "全屏": "Fullscreen", "退出全屏": "Exit fullscreen", "让地图面板占满整个屏幕，按 Esc 退出": "Fill the screen with the map panel; Esc exits",
   "复位": "Reset", "滚轮缩放，拖动平移，双击复位": "Scroll to zoom, drag to pan, double-click to reset",
   "保存平面图": "Save flat map", "把平面地图（含水系、聚落和标注）保存成 PNG 图片": "Save the flat map (with water, towns and marks) as a PNG",
@@ -861,8 +861,10 @@ compared layer by layer. character = how many points the whole-map shares miss t
 map has sea where the spec has none or the other way round. nature = physics and climate-vegetation failures (rivers
 without outlet, rain shadow, towns in water or on cliffs, rainforest in a dry climate). detail = settlement sites,
 relations, ranges, river and lake counts, weighted by source (author 1, proposed 0.5, invented ×0.6) and by how near
-the miss is. A round is kept only if it does not make an earlier layer worse; changes under 1 / 0.5 / 0.25 count as a
-tie. A worse round is undone, except that its settlement moves and declarations are kept when they alone help. So fix
+the miss is. A round that does not make an earlier layer worse is kept; changes under 1 / 0.5 / 0.25 count as a tie.
+A worse round is usually undone: it may still be kept by chance, less likely the more it costs (a character point
+counts as one detail miss, a nature failure as two) and less likely in later rounds, and the run ends on the best
+version seen anyway. An undone round keeps its settlement moves and declarations when they alone help. So fix
 character first, usually with set_climate or set_landform, never trade it for a town, and leave "near_limits" checks
 alone: they pass now but have only a few points left. If a town's requirement can only be met by breaking the world's
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
@@ -1051,6 +1053,7 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   const keepBest = () => { if (rankScore(score, best.score) < 0) best = { W, score }; };
   const callOf = x => `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`;
   const negotiated = new Set();          // one negotiation per distinct conflict core, never the same core twice
+  const soft = ($("#onWorse") || {}).value !== "strict";
   for (let it = 1; it <= maxIter; it++) {
     if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("验证器没有发现剩余违规，循环结束。", "The verifier finds nothing left; the loop ends.") }); break; }
     // Conflict resolution runs first: editing terrain towards a goal the solver has proved unreachable is wasted work.
@@ -1099,9 +1102,13 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     item.body = pol.analysis;
     if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + L("（agent 没有给出新动作，循环结束）", "(no new actions from the agent; the loop ends)"); renderTrace(); break; }
     let r = applyActions(W, pol.actions), rep2 = verify(r.W, lore()), s2 = layeredScore(r.W, rep2), note = "";
-    // accept a round only if it does not make an earlier layer worse; character, then nature, then details
-    if (compareScore(s2, score) > 0) {
-      const why = L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)})`);
+    // a round that makes an earlier layer worse is undone, or under soft acceptance kept with a probability that
+    // shrinks the more it costs; character, then nature, then details
+    const sa = compareScore(s2, score) > 0 && soft ? softAccept(s2, score, it, W.P.seed) : null;
+    if (sa && sa.ok) note = L(`（评分变差 ${scoreText(score)} → ${scoreText(s2)}，代价 ${sa.cost}、温度 ${sa.temp}，以 ${Math.round(sa.p * 100)}% 的概率接受）`, `(score worsens ${scoreText(score)} → ${scoreText(s2)}, cost ${sa.cost} at temperature ${sa.temp}; accepted with probability ${Math.round(sa.p * 100)}%)`);
+    else if (compareScore(s2, score) > 0) {
+      const why = sa ? L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}，接受概率 ${Math.round(sa.p * 100)}%，未抽中）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)}; acceptance chance ${Math.round(sa.p * 100)}%, not drawn)`)
+        : L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)})`);
       // the round's settlement moves and declarations may still help on their own, without its terrain edits
       const keep = pol.actions.filter(a => a && (a.tool === "move_settlement" || a.tool === "declare_unsatisfiable"));
       let partial = null;
@@ -1122,7 +1129,7 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
       note = L(`（${why}；只保留了聚落移动和声明：${scoreText(partial.s)}）`, `(${why}; kept only the settlement moves and declarations: ${scoreText(partial.s)})`);
       r = { ...partial.r, results: r.results.concat(partial.r.results) }; rep2 = partial.rep; s2 = partial.s;
     }
-    hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: true });
+    hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: true, ...(sa && sa.ok ? { kept_though_worse: true } : {}) });
     W = r.W; rep = rep2; score = s2; keepBest();
     item.after = rep.fails.length;
     item.body += (item.body ? " " : "") + (note || L(`（评分 ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)}）`, `(score ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)})`));

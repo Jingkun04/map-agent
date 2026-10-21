@@ -285,6 +285,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       </select>
       <label class="f" for="maxIter">最多迭代轮数</label>
       <input type="number" id="maxIter" value="6" min="1" max="10">
+      <label class="f" for="onWorse">评分变差的一轮</label>
+      <select id="onWorse">
+        <option value="soft">按变差程度以一定概率接受（越差越难）</option>
+        <option value="strict">一律回滚</option>
+      </select>
     </details>
     <details><summary>当前 WorldSpec</summary><pre id="specView">（运行后显示）</pre></details>
   </section>
