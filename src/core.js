@@ -26,7 +26,7 @@ const NAMES_EN = {
   RIVER_NAMES: ["Greywater", "Willow Brook", "Blackstone", "Silverband", "Mistrun", "Redmud", "Heron River", "Coldspring", "Whitesand", "Reedwither", "Longmere", "Singing Brook"],
   LAKE_NAMES: ["Mirror Lake", "Sunken Bell", "Reedpond", "Coldtarn", "Crescent Mere", "Greyeye Lake", "Bottomless Tarn", "Crane Lake"],
   DIRS8: ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"],
-  LANDFORM_ZH: { coast: "coast", continent: "continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland" },
+  LANDFORM_ZH: { coast: "coast", continent: "sea-ringed continent", archipelago: "archipelago", islands: "large islands", peninsula: "peninsula", isthmus: "isthmus", inland_sea: "inland sea", fjords: "fjord coast", volcanic_island: "volcanic island", shattered: "shattered land", lakeland: "lakeland", highland: "rift highland", plains: "inland plains", basin: "mountain-ringed basin", bay: "gulf coast", two_coasts: "two-sea coast" },
   CHAR_METRICS: { land_share: "land share of map", lake_share: "lakes, share of land", mountain_share: "mountains, share of land", desert_share: "desert and salt flat, share of land", grass_share: "grassland, share of land", forest_share: "forest, share of land", cold_share: "ice and tundra, share of land", wetland_share: "marsh, share of land", islands: "landmasses" },
   CHAR_LEVEL_ZH: { none: "almost none", low: "low", moderate: "moderate", high: "high", dominant: "dominant" },
 };
@@ -77,8 +77,10 @@ function normalizeSpec(raw) {
   // Optional fields below (landform, scale, climate_zone, names, hamlets) are left out when absent, so a spec
   // without them derives exactly the world it always did — the benchmark specs depend on that.
   if (LANDFORMS.includes(s.landform)) out.landform = s.landform;
-  out.ocean_side = ["E", "W", "N", "S", "all", "none"].includes(s.ocean_side) ? s.ocean_side
+  out.ocean_side = OCEAN_SIDES.includes(s.ocean_side) ? s.ocean_side
     : out.landform ? (LANDFORM_SIDE[out.landform] || "E") : "E";
+  // two seas can only be drawn by the two-coast template; without a landform the old one-sided shapes would drop them
+  if (out.ocean_side.length === 2 && !out.landform) out.landform = "two_coasts";
   if (SCALES[s.scale] && s.scale !== "region") out.scale = s.scale;
   if (s.climate_zone && typeof s.climate_zone === "object") {
     const t = CLIMATE_T[s.climate_zone.temperature] != null ? s.climate_zone.temperature : "temperate";
@@ -164,9 +166,11 @@ function initParams(spec) {
 // sea over the same distance, so both get the gentle, buildable shore the original one-sided coast had.
 // Sea primitives (sea, channel) push d up. Relief primitives (pit, peak, rift, lift) add to the elevation afterwards.
 const COAST_D = 0.72;
-const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland"];
-const LANDFORM_ZH = { coast: "海岸", continent: "大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷" };
-const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none" };
+const LANDFORMS = ["coast", "continent", "archipelago", "islands", "peninsula", "isthmus", "inland_sea", "fjords", "volcanic_island", "shattered", "lakeland", "highland", "plains", "basin", "bay", "two_coasts"];
+const LANDFORM_ZH = { coast: "海岸", continent: "环海大陆", archipelago: "群岛", islands: "数座大岛", peninsula: "半岛", isthmus: "地峡", inland_sea: "内海", fjords: "峡湾海岸", volcanic_island: "火山岛", shattered: "破碎大陆", lakeland: "千湖内陆", highland: "高原裂谷", plains: "内陆平原", basin: "群山盆地", bay: "大海湾", two_coasts: "两面临海" };
+// one sea side, two (a corner such as NE, or opposite sides NS / EW), sea all round, or none
+const OCEAN_SIDES = ["E", "W", "N", "S", "NE", "NW", "SE", "SW", "NS", "EW", "all", "none"];
+const LANDFORM_SIDE = { coast: "E", fjords: "W", peninsula: "S", continent: "all", archipelago: "all", islands: "all", isthmus: "all", inland_sea: "all", volcanic_island: "all", shattered: "all", lakeland: "none", highland: "none", plains: "none", basin: "none", bay: "E", two_coasts: "NE" };
 const CLIMATE_T = { polar: -0.36, cold: -0.18, temperate: 0, warm: 0.16, hot: 0.32 };
 const CLIMATE_W = { arid: [0.24, 0], dry: [0.55, 0], normal: [1, 0], humid: [1, 0.16] };
 const RIDGE_LEN = { short: 0.6, medium: 1, long: 1.55 };
@@ -219,13 +223,28 @@ function charLabel(c) {
   if (c.metric === "islands") return `${CHAR_METRICS.islands}${L("：", ": ")}${c.max >= 99 ? `≥ ${c.min}` : `${c.min}–${c.max}`}`;
   return `${CHAR_METRICS[c.metric]}${L("：", ": ")}${CHAR_LEVEL_ZH[c.level]}`;
 }
+// Character checks pass with some slack around the stated range. They describe how a world reads, and nobody can tell
+// 15% tundra from 18% at a glance; a hard line would roll back repair rounds over a difference no reader sees and teach
+// the model to treat the levels as exact targets. Shares get 5 points either way ("none" 2); a landmass count gets
+// room above for the islets every island coast throws off, and a little below once it asks for many.
+const CHAR_TOL = 0.05;
+function charBounds(c) {
+  if (c.metric === "islands") return [c.min - Math.floor(c.min * 0.2), c.max >= 99 ? Infinity : c.max + Math.max(3, Math.ceil(c.max * 0.5))];
+  const [lo, hi] = CHAR_LEVELS[c.level], t = c.level === "none" ? 0.02 : CHAR_TOL;
+  return [lo > 0 ? lo - t : 0, hi < 1 ? hi + t : 1];
+}
 function charCheck(W, c) {
-  const v = mapStats(W)[c.metric];
-  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass: v >= c.min && v <= c.max, measured: L(`实测 ${v} 块（预期 ${want}）`, `measured ${v} (expected ${want})`) }; }
+  const v = mapStats(W)[c.metric], [blo, bhi] = charBounds(c);
+  const strict = c.metric === "islands" ? v >= c.min && v <= c.max : v >= CHAR_LEVELS[c.level][0] && v <= CHAR_LEVELS[c.level][1];
+  const pass = v >= blo && v <= bhi, slack = pass && !strict ? L("，在容差内", ", within tolerance") : "";
+  // dev: how far outside the tolerated band, in percentage points (a landmass counts 5); margin: how far inside it
+  const k = c.metric === "islands" ? 5 : 100, dev = pass ? 0 : +(k * (v < blo ? blo - v : v - bhi)).toFixed(1);
+  const margin = !pass ? 0 : +(k * Math.min(blo > 0 ? v - blo : Infinity, bhi < (c.metric === "islands" ? Infinity : 1) ? bhi - v : Infinity)).toFixed(1);
+  if (c.metric === "islands") { const want = c.max >= 99 ? "≥ " + c.min : c.min + "–" + c.max; return { pass, dev, margin, measured: L(`实测 ${v} 块（预期 ${want}${slack}）`, `measured ${v} (expected ${want}${slack})`) }; }
   const [lo, hi] = CHAR_LEVELS[c.level];
   const pct = x => `${Math.round(x * 100)}%`;
   const want = lo > 0 && hi >= 1 ? `≥ ${pct(lo)}` : lo > 0 ? `${pct(lo)}–${pct(hi)}` : `≤ ${pct(hi)}`;
-  return { pass: v >= lo && v <= hi, measured: L(`实测 ${pct(v)}（预期 ${want}）`, `measured ${pct(v)} (expected ${want})`) };
+  return { pass, dev, margin, measured: L(`实测 ${pct(v)}（预期 ${want}${slack}）`, `measured ${pct(v)} (expected ${want}${slack})`) };
 }
 
 // evaporation per lake cell under a climate_zone, relative to inflow (acc); LAKE_K scales inflow to lake cells
@@ -233,22 +252,24 @@ const EVAP_W = { arid: 4, dry: 1.6, normal: 0.55, humid: 0.3 }, EVAP_T = { polar
 
 function landformRecipe(spec, seed) {
   const r = rng(seed * 31 + 4242), R = (a, b) => a + r() * (b - a), I = (a, b) => Math.floor(R(a, b + 1));
-  const side = ["E", "W", "N", "S"].includes(spec.ocean_side) ? spec.ocean_side : ["E", "W", "N", "S"][I(0, 3)];
+  const sides = OCEAN_SIDES.includes(spec.ocean_side) && spec.ocean_side.length <= 2 ? spec.ocean_side.split("") : [];
+  const side = sides.length ? sides[0] : ["E", "W", "N", "S"][I(0, 3)];
   const L = [], S = [], Z = [];          // land, sea, relief
   const blob = (x, y, rx, ry, a = R(0, Math.PI)) => L.push({ t: "blob", x, y, rx, ry, a });
   const sea = (x, y, rx, ry, a = R(0, Math.PI)) => S.push({ t: "sea", x, y, rx, ry, a });
-  const chan = (x1, y1, x2, y2, w) => S.push({ t: "chan", x1, y1, x2, y2, w });
+  const chan = (x1, y1, x2, y2, w, dep = 0.08) => S.push({ t: "chan", x1, y1, x2, y2, w, dep });
   // a channel that bends and narrows towards its far end, built from short straight pieces
-  const wiggle = (x1, y1, x2, y2, w0, w1, n = 4, j = 0.08) => {
+  const wiggle = (x1, y1, x2, y2, w0, w1, n = 4, j = 0.08, dep = 0.08) => {
     const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1, px = -dy / l, py = dx / l;
     let ax = x1, ay = y1;
     for (let k = 1; k <= n; k++) {
       const t = k / n, o = k < n ? R(-j, j) * l : 0, bx = x1 + dx * t + px * o, by = y1 + dy * t + py * o;
-      chan(ax, ay, bx, by, w0 + (w1 - w0) * (k - 0.5) / n); ax = bx; ay = by;
+      chan(ax, ay, bx, by, w0 + (w1 - w0) * (k - 0.5) / n, dep); ax = bx; ay = by;
     }
   };
   // a point on the edge facing the sea, and the inward normal
-  const edge = (t) => side === "E" ? [1, t, -1, 0] : side === "W" ? [0, t, 1, 0] : side === "N" ? [t, 0, 0, 1] : [t, 1, 0, -1];
+  const edgeOf = (sd, t) => sd === "E" ? [1, t, -1, 0] : sd === "W" ? [0, t, 1, 0] : sd === "N" ? [t, 0, 0, 1] : [t, 1, 0, -1];
+  const edge = (t) => edgeOf(side, t);
   const ring = (cx, cy, rad, n, rmin, rmax) => { const a0 = R(0, 6.3); for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28 + R(-0.3, 0.3), d = rad * R(0.85, 1.15); blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, R(rmin, rmax), R(rmin, rmax)); } };
   switch (spec.landform) {
     case "coast": {
@@ -277,9 +298,18 @@ function landformRecipe(spec, seed) {
       break;
     }
     case "islands": {
-      const n = I(2, 3), a0 = R(0, 6.3);
-      for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28; blob(0.5 + Math.cos(a) * 0.25, 0.5 + Math.sin(a) * 0.25, R(0.16, 0.21), R(0.13, 0.18)); }
+      // two or three big islands round the centre, each small enough to leave a sea gap to its neighbours, and a deep
+      // strait between every pair: the coordinate warp and the smooth union of blobs would otherwise fuse them
+      const n = I(2, 3), a0 = R(0, 6.3), rho = R(0.25, 0.29);
+      const rmax = (2 * rho * Math.sin(Math.PI / n) - 0.1) / 2, cs = [];
+      for (let k = 0; k < n; k++) {
+        const a = a0 + k / n * 6.28, rx = Math.min(R(0.16, 0.21), rmax);
+        cs.push([0.5 + Math.cos(a) * rho, 0.5 + Math.sin(a) * rho]); blob(cs[k][0], cs[k][1], rx, rx * R(0.7, 0.9));
+      }
       for (let k = I(3, 6); k--;) blob(R(0.12, 0.88), R(0.12, 0.88), R(0.015, 0.04), R(0.015, 0.04));
+      if (n === 2) { const px = -(cs[1][1] - cs[0][1]) / (2 * rho), py = (cs[1][0] - cs[0][0]) / (2 * rho); chan(0.5 - px * 0.6, 0.5 - py * 0.6, 0.5 + px * 0.6, 0.5 + py * 0.6, 0.03, 0.2); }
+      // with three, each strait runs from the centre out between its pair, away from the third island
+      else for (let k = 0; k < 3; k++) { const m = [(cs[k][0] + cs[(k + 1) % 3][0]) / 2, (cs[k][1] + cs[(k + 1) % 3][1]) / 2], l = Math.hypot(m[0] - 0.5, m[1] - 0.5); chan(0.5, 0.5, 0.5 + (m[0] - 0.5) / l * 0.6, 0.5 + (m[1] - 0.5) / l * 0.6, 0.03, 0.2); }
       break;
     }
     case "peninsula": {
@@ -303,7 +333,10 @@ function landformRecipe(spec, seed) {
       L.push({ t: "fill", d: 0.35 });
       const cx = R(0.42, 0.58), cy = R(0.42, 0.58);
       sea(cx, cy, R(0.2, 0.27), R(0.12, 0.18));
-      const [ex, ey] = edge(R(0.3, 0.7)); chan(cx, cy, ex, ey, R(0.025, 0.04));
+      // the strait runs on past the map edge (the coordinates are warped by up to ~0.09, so one that stopped at the
+      // edge could end short of it) and is cut deep enough that terrain noise cannot dam it; otherwise the sea is left
+      // cut off as a dry hollow below sea level
+      const [ex, ey, nx, ny] = edge(R(0.3, 0.7)); chan(cx, cy, ex - nx * 0.15, ey - ny * 0.15, R(0.03, 0.045), 0.2);
       for (let k = I(1, 3); k--;) blob(cx + R(-0.12, 0.12), cy + R(-0.06, 0.06), R(0.02, 0.05), R(0.02, 0.04));
       break;
     }
@@ -337,6 +370,45 @@ function landformRecipe(spec, seed) {
       for (let k = I(6, 10); k--;) Z.push({ t: "pit", x: R(0.12, 0.88), y: R(0.12, 0.88), r: R(0.025, 0.06), h: R(0.07, 0.13) });
       break;
     }
+    case "plains": {
+      // as low as a landlocked map can sit without the edges dropping below sea level, so it stays warm, open and flat
+      L.push({ t: "fill", d: 0.58 });
+      for (let k = I(1, 3); k--;) Z.push({ t: "pit", x: R(0.2, 0.8), y: R(0.2, 0.8), r: R(0.05, 0.09), h: R(0.02, 0.04) });
+      break;
+    }
+    case "basin": {
+      // a lowland ringed by mountains that drains out through one gorge (Sichuan, Tarim, the Carpathian basin)
+      L.push({ t: "fill", d: 0.5 });
+      const cx = R(0.45, 0.55), cy = R(0.45, 0.55), rx = R(0.3, 0.36), ry = R(0.26, 0.32);
+      const a = R(0, Math.PI), gap = R(-Math.PI, Math.PI);
+      Z.push({ t: "ring", x: cx, y: cy, rx, ry, a, w: R(0.05, 0.07), h: R(0.17, 0.22), gap, gw: R(0.25, 0.4) });
+      // a valley from the middle out through the gorge, so the floor drains instead of filling into one great lake
+      const gx = Math.cos(gap) * rx * 1.5, gy = Math.sin(gap) * ry * 1.5;
+      Z.push({ t: "rift", x1: cx, y1: cy, x2: cx + gx * Math.cos(a) - gy * Math.sin(a), y2: cy + gx * Math.sin(a) + gy * Math.cos(a), w: 0.06, h: 0.08 });
+      break;
+    }
+    case "bay": {
+      // a mainland coast with one large gulf reaching deep inland through a narrower mouth (Bohai, the Gulf of Bothnia)
+      L.push({ t: "side", side });
+      const [ex, ey, nx, ny] = edge(R(0.3, 0.7)), dep = R(0.42, 0.55), w = R(0.1, 0.15), bx = ex + nx * dep, by = ey + ny * dep;
+      sea(bx, by, w * R(1.1, 1.6), w, Math.atan2(ny, nx) + Math.PI / 2 + R(-0.5, 0.5));     // the gulf, lying across the way in
+      wiggle(bx, by, ex - nx * 0.1, ey - ny * 0.1, R(0.035, 0.055), R(0.05, 0.08), 3, 0.06, 0.2);   // and its mouth
+      if (r() < 0.6) blob(bx + R(-0.05, 0.05), by + R(-0.05, 0.05), R(0.015, 0.03), R(0.015, 0.03));
+      for (let k = I(1, 2); k--;) { const [ex2, ey2, nx2, ny2] = edge(R(0.1, 0.9)), d2 = R(0.12, 0.2); sea(ex2 + nx2 * d2, ey2 + ny2 * d2, R(0.04, 0.07), R(0.04, 0.07)); }
+      break;
+    }
+    case "two_coasts": {
+      // sea on two sides: a corner of land (NE, SW...) or a strip of land between two seas (NS, EW)
+      const opp = { E: "W", W: "E", N: "S", S: "N" }, adj = { E: ["N", "S"], W: ["N", "S"], N: ["E", "W"], S: ["E", "W"] };
+      const pair = sides.length === 2 ? sides : [side, r() < 0.65 ? adj[side][I(0, 1)] : opp[side]];
+      const across = pair[1] === opp[pair[0]];       // a strip between two seas keeps less sea on each side
+      L.push({ t: "sides", sides: pair.map(sd => ({ sd, off: across ? R(0.06, 0.14) : R(0.02, 0.1) })) });
+      for (const sd of pair) {
+        for (let k = I(1, 2); k--;) { const [ex, ey, nx, ny] = edgeOf(sd, R(0.2, 0.8)), dep = R(0.12, 0.2); sea(ex + nx * dep, ey + ny * dep, R(0.05, 0.09), R(0.05, 0.09)); }
+        for (let k = I(0, 2); k--;) { const [ex, ey, nx, ny] = edgeOf(sd, R(0.1, 0.9)), off = R(0.06, 0.12); blob(ex + nx * off, ey + ny * off, R(0.025, 0.05), R(0.025, 0.05)); }
+      }
+      break;
+    }
     case "highland": {
       L.push({ t: "fill", d: 0.0 });
       Z.push({ t: "lift", h: 0.035 });
@@ -357,12 +429,14 @@ function seaDistance(rec, u, v) {
     let e;
     if (p.t === "blob") e = COAST_D + (ellDist(p, u, v) - 1) * Math.min(p.rx, p.ry);
     else if (p.t === "fill") e = p.d;
+    // land must be far from every listed sea: a smooth max of the one-sided distances rounds the corner
+    else if (p.t === "sides") e = p.sides.reduce((m, q) => -smin(-m, -((q.sd === "E" ? u : q.sd === "W" ? 1 - u : q.sd === "N" ? 1 - v : v) - q.off), 0.06), -9);
     else { const t = p.side === "E" ? u : p.side === "W" ? 1 - u : p.side === "N" ? 1 - v : v; e = p.reach ? COAST_D + (1 - t) - p.reach : t; }
     d = smin(d, e, 0.03);
   }
   for (const p of rec.S) {
     const e = p.t === "sea" ? ellDist(p, u, v) : segDist(u, v, p.x1, p.y1, p.x2, p.y2) / p.w;
-    if (e < 1) d = Math.max(d, COAST_D + (1 - e) * (p.t === "sea" ? Math.max(0.08, Math.min(p.rx, p.ry)) : 0.08));
+    if (e < 1) d = Math.max(d, COAST_D + (1 - e) * (p.t === "sea" ? Math.max(0.08, Math.min(p.rx, p.ry)) : p.dep));
   }
   return d;
 }
@@ -371,6 +445,12 @@ function reliefAt(rec, u, v) {
   for (const p of rec.Z) {
     if (p.t === "lift") z += p.h;
     else if (p.t === "rift") { const e = segDist(u, v, p.x1, p.y1, p.x2, p.y2) / p.w; z -= p.h * Math.exp(-e * e); }
+    else if (p.t === "ring") {
+      // a mountain wall along an ellipse, nearly gone in a gorge at angle p.gap so the basin can drain
+      const c = Math.cos(p.a), s = Math.sin(p.a), dx = u - p.x, dy = v - p.y, lx = (dx * c + dy * s) / p.rx, ly = (-dx * s + dy * c) / p.ry;
+      const e = (Math.hypot(lx, ly) - 1) * Math.min(p.rx, p.ry) / p.w, da = Math.atan2(ly, lx) - p.gap, dg = Math.atan2(Math.sin(da), Math.cos(da)) / p.gw;
+      z += p.h * Math.exp(-e * e) * (1 - 0.95 * Math.exp(-dg * dg));
+    }
     else { const e = Math.hypot(u - p.x, v - p.y) / p.r; z += (p.t === "peak" ? 1 : -1) * p.h * Math.exp(-e * e); }
   }
   return z;
@@ -579,7 +659,20 @@ function priorityFlood(h, ocean) {
   }
   return surf;
 }
-function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0) {
+// Water the land yields, the same everywhere on the map: precipitation set by the climate's humidity (or P.rain)
+// times what survives evaporation at its temperature. In dry climates a channel also loses part of its flow to
+// evaporation and seepage on each km downstream, so small rivers die out in the desert and only big ones cross it.
+// Without a climate_zone or P.rain the old per-cell yield (0.3 + moisture, no losses) stands, so worlds derive as before.
+const RAIN_YIELD = { arid: 0.12, dry: 0.35, normal: 0.78, humid: 1.1 };
+const RAIN_TEMP = { polar: 1.1, cold: 1.05, temperate: 1, warm: 0.85, hot: 0.7 };
+const LOSS_PER_KM = { arid: 0.003, dry: 0.001, normal: 0, humid: 0 };
+function runoffOf(P, cz, km) {
+  if (!cz && P.rain === undefined) return null;
+  const c = cz || { temperature: "temperate", humidity: "normal" };
+  const rain = P.rain !== undefined ? clamp(+P.rain, 0, 2) : RAIN_YIELD[c.humidity];
+  return { q: +(rain * RAIN_TEMP[c.temperature]).toFixed(3), keep: Math.pow(1 - LOSS_PER_KM[c.humidity], km) };
+}
+function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0, water = null) {
   const RN = names && names.rivers && names.rivers.length ? names.rivers : RIVER_NAMES, LN = names && names.lakes && names.lakes.length ? names.lakes : LAKE_NAMES;
   const surf = P.hydro === "filled" ? priorityFlood(h, ocean) : Float32Array.from(h);
   const down = new Int32Array(NN).fill(-1);
@@ -597,8 +690,9 @@ function buildHydro(P, h, moist, ocean, names, km = KM_PER_CELL, evap = 0) {
     const keys = new Float64Array(land.length); for (let k = 0; k < land.length; k++) keys[k] = Math.floor(-surf[land[k]] * 1e7) * 1048576 + land[k];
     keys.sort(); for (let k = 0; k < land.length; k++) { const v = keys[k]; land[k] = v - Math.floor(v / 1048576) * 1048576; } }
   const acc = new Float32Array(NN);
-  for (const i of land) acc[i] += 0.3 + moist[i];
-  for (const i of land) { const d = down[i]; if (d >= 0 && !ocean[d]) acc[d] += acc[i]; }
+  for (const i of land) acc[i] += water ? water.q : 0.3 + moist[i];
+  const keep = water ? water.keep : 1;
+  for (const i of land) { const d = down[i]; if (d >= 0 && !ocean[d]) acc[d] += acc[i] * keep; }
   // lakes
   const lake = new Uint8Array(NN), lakes = [], playa = new Uint8Array(NN);
   if (P.hydro === "filled") {
@@ -816,7 +910,8 @@ function derive(spec, P) {
   const moist = buildMoisture(spec, P, h, ocean);
   const cz = P.cz !== undefined ? P.cz : spec.climate_zone;        // P.cz: climate set by the repair agent (null = temperate)
   if (cz) { const [mul, add] = CLIMATE_W[cz.humidity]; for (let i = 0; i < NN; i++) moist[i] = clamp(moist[i] * mul + add, 0.02, 0.98); }
-  const hy = buildHydro(P, h, moist, ocean, spec.names, (SCALES[spec.scale] || SCALES.region).km, cz ? EVAP_W[cz.humidity] * EVAP_T[cz.temperature] : 0);
+  const km = (SCALES[spec.scale] || SCALES.region).km;
+  const hy = buildHydro(P, h, moist, ocean, spec.names, km, cz ? EVAP_W[cz.humidity] * EVAP_T[cz.temperature] : 0, runoffOf(P, cz, km));
   const biome = new Array(NN);
   const dt = cz ? CLIMATE_T[cz.temperature] : null;
   // riparian green: in a dry climate the banks of rivers and lakes stay wet enough for grass and trees — the oases
@@ -1244,8 +1339,12 @@ function verify(W, lore) {
   for (const c of spec.character || []) {
     const r = charCheck(W, c);
     add({ id: `char.${c.id}`, cat: L("特征", "character"), code: "character", target: c.id, metric: c.metric, source: c.source,
-      label: L(`整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, `Character: ${charLabel(c)}${c.source === "critic" ? " (added in review)" : ""}`), pass: r.pass, measured: r.measured, why: c.why, at: [] });
+      label: L(`整体特征：${charLabel(c)}${c.source === "critic" ? "（审阅补充）" : ""}`, `Character: ${charLabel(c)}${c.source === "critic" ? " (added in review)" : ""}`), pass: r.pass, measured: r.measured, why: c.why, dev: r.dev, margin: r.margin, at: [] });
   }
+  // whether the world touches the sea at all is the author's call, and a reader sees it before anything else
+  const wantSea = spec.ocean_side !== "none";
+  add({ id: "char.sea", cat: L("特征", "character"), code: "world_sea", label: wantSea ? L("整体特征：临海", "Character: has a sea") : L("整体特征：内陆，全图无海", "Character: landlocked, no sea anywhere"),
+    pass: hasOcean === wantSea, measured: hasOcean ? L("图上有海", "the map has sea") : L("图上没有海", "the map has no sea"), at: [] });
   // physical
   add({ id: "phys.sinks", cat: L("物理", "physics"), code: "river_sink", label: L("河流必须汇入海洋、湖泊或流出图幅", "Rivers must reach the sea, a lake or the map edge"), pass: hy.sinks.length === 0, measured: hy.sinks.length ? L(`${hy.sinks.length} 处河道终止于无出口洼地`, `${hy.sinks.length} channels end in closed basins`) : L("所有河道都有出口", "every channel has an outlet"), at: hy.sinks.slice(0, 6).map(s => cellXY(s.i)) });
   for (const m of spec.mountains) {
@@ -1258,14 +1357,23 @@ function verify(W, lore) {
     const sl = slopeAt(W, i);
     add({ id: `phys.slope.${s.id}`, cat: L("物理", "physics"), code: "steep", target: s.id, label: L(`${s.name}不能建在陡坡上`, `${s.name} cannot stand on a steep slope`), pass: sl <= SLOPE_MAX, measured: L(`坡度 ${(sl * 1000).toFixed(0)}（上限 ${SLOPE_MAX * 1000}）`, `slope ${(sl * 1000).toFixed(0)} (limit ${SLOPE_MAX * 1000})`), at: [W.P.pos[s.id]] });
   }
+  // vegetation must fit the climate: rainforest and jungle need rain, so a dry or arid world keeps them to a trace
+  const czV = P.cz !== undefined ? P.cz : spec.climate_zone;
+  if (czV && (czV.humidity === "dry" || czV.humidity === "arid")) {
+    let land = 0, wet = 0; for (let i = 0; i < NN; i++) if (!W.ocean[i]) { land++; if (W.biome[i] === "rainforest" || W.biome[i] === "jungle") wet++; }
+    const sh = wet / Math.max(1, land), lim = 0.01;
+    add({ id: "phys.biome.wet", cat: L("物理", "physics"), code: "biome_climate", label: L("偏干的气候里不该有成片雨林或丛林", "A dry climate should not grow rainforest or jungle"),
+      pass: sh <= lim, dev: sh > lim ? +((sh - lim) * 100).toFixed(1) : 0,
+      measured: L(`雨林与丛林占陆地 ${(sh * 100).toFixed(1)}%（上限 ${lim * 100}%）`, `rainforest and jungle ${(sh * 100).toFixed(1)}% of land (limit ${lim * 100}%)`), at: [] });
+  }
   // spec
   for (const m of spec.mountains) {
     const [cx, cy] = regionCenter(m.region); let cnt = 0, peak = 0;
     for (let y = Math.floor(cy - N / 6); y < cy + N / 6; y++) for (let x = Math.floor(cx - N / 6); x < cx + N / 6; x++) { const i = y * N + x; if (W.ocean[i]) continue; const rel = W.h[i] - P.sea; peak = Math.max(peak, rel); if (rel > MOUNTAIN_REL) cnt++; }
-    add({ id: `spec.mtn.${m.id}`, cat: L("规格", "spec"), code: "mountain_weak", target: m.id, region: m.region, label: L(`${RG(m.region)}要有${m.name}`, `${m.name} should rise in ${RG(m.region)}`), pass: cnt >= MOUNTAIN_MIN_CELLS, measured: L(`山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, `${cnt} mountain cells (need ${MOUNTAIN_MIN_CELLS}), peak relative elevation ${peak.toFixed(2)}`), at: [[Math.round(cx), Math.round(cy)]] });
+    add({ id: `spec.mtn.${m.id}`, cat: L("规格", "spec"), code: "mountain_weak", target: m.id, region: m.region, label: L(`${RG(m.region)}要有${m.name}`, `${m.name} should rise in ${RG(m.region)}`), pass: cnt >= MOUNTAIN_MIN_CELLS, gap: clamp(1 - cnt / MOUNTAIN_MIN_CELLS, 0, 1), measured: L(`山地 ${cnt} 格（至少 ${MOUNTAIN_MIN_CELLS}），最高相对海拔 ${peak.toFixed(2)}`, `${cnt} mountain cells (need ${MOUNTAIN_MIN_CELLS}), peak relative elevation ${peak.toFixed(2)}`), at: [[Math.round(cx), Math.round(cy)]] });
   }
-  add({ id: "spec.rivers", cat: L("规格", "spec"), code: "few_rivers", label: L(`至少 ${spec.min_major_rivers} 条大河`, `At least ${spec.min_major_rivers} major rivers`), pass: hy.rivers.length >= spec.min_major_rivers, measured: L(`现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, `${hy.rivers.length} now (main stem ≥ ${MAJOR_LEN * kmOf(W)} km)`), at: [] });
-  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: L("规格", "spec"), code: "few_lakes", label: L(`至少 ${spec.min_lakes} 个湖泊`, `At least ${spec.min_lakes} lakes`), pass: hy.lakes.length >= spec.min_lakes, measured: L(`现有 ${hy.lakes.length} 个`, `${hy.lakes.length} now`), at: [] });
+  add({ id: "spec.rivers", cat: L("规格", "spec"), code: "few_rivers", label: L(`至少 ${spec.min_major_rivers} 条大河`, `At least ${spec.min_major_rivers} major rivers`), pass: hy.rivers.length >= spec.min_major_rivers, gap: clamp(1 - hy.rivers.length / Math.max(1, spec.min_major_rivers), 0, 1), measured: L(`现有 ${hy.rivers.length} 条（主干 ≥ ${MAJOR_LEN * kmOf(W)} km）`, `${hy.rivers.length} now (main stem ≥ ${MAJOR_LEN * kmOf(W)} km)`), at: [] });
+  if (spec.min_lakes > 0) add({ id: "spec.lakes", cat: L("规格", "spec"), code: "few_lakes", label: L(`至少 ${spec.min_lakes} 个湖泊`, `At least ${spec.min_lakes} lakes`), pass: hy.lakes.length >= spec.min_lakes, gap: clamp(1 - hy.lakes.length / spec.min_lakes, 0, 1), measured: L(`现有 ${hy.lakes.length} 个`, `${hy.lakes.length} now`), at: [] });
   for (const s of spec.settlements) {
     const i = posIdx(W, s.id), p = W.P.pos[s.id];
     if (s.region) {
@@ -1296,8 +1404,10 @@ function verify(W, lore) {
       const detail = !g ? (ok ? L("满足", "met") : L("不满足", "not met"))
         : q2 === "accessible" ? L(`通达度 ${g.access[i].toFixed(2)}（需 ≥ ${ACCESS_T}）`, `accessibility ${g.access[i].toFixed(2)} (need ≥ ${ACCESS_T})`)
         : L(`防御性 ${g.def[i].toFixed(2)}（需 ≥ ${DEF_T}）`, `defensibility ${g.def[i].toFixed(2)} (need ≥ ${DEF_T})`);
+      // a near miss on a graded measure costs little: 5% short of the line already counts as a full miss
+      const gap = ok || !g ? 1 : clamp(5 * (1 - (q2 === "accessible" ? g.access[i] / ACCESS_T : g.def[i] / DEF_T)), 0, 1);
       add({ id, cat: L("规格", "spec"), code: "req_unmet", target: s.id, req: q2, item: q2, source: src, relaxed: !!rx,
-        label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: ok, measured: detail, at: [p] });
+        label: L(`${s.name}（${TYPE_ZH[s.type]}）需要${REQ_ZH[q2]}${note}`, `${s.name} (${TYPE_ZH[s.type]}) must be ${REQ_ZH[q2]}${note}`), pass: ok, gap, measured: detail, at: [p] });
     }
   }
   // narrative
@@ -1326,7 +1436,7 @@ function verify(W, lore) {
       const days = item.startsWith("near:") ? +item.split("@")[1] : rl.days;
       const d = travelDays(W, rl.a, rl.b), ok = d != null && d <= days;
       add({ id: `spec.rel.${rl.id}`, cat: L("规格", "spec"), code: "rel_days", target: rl.a, other: rl.b, days, source: rl.source, item, relaxed: !!rx,
-        label: L(`${A.name}到${B.name}不超过 ${days} 天${tag}`, `${A.name} within ${days} days of ${B.name}${tag}`), pass: ok, measured: d == null ? L("陆路不可达", "unreachable overland") : L(`实测 ${d} 天`, `measured ${d} days`), at: [W.P.pos[rl.a]] });
+        label: L(`${A.name}到${B.name}不超过 ${days} 天${tag}`, `${A.name} within ${days} days of ${B.name}${tag}`), pass: ok, gap: d == null ? 1 : clamp(5 * (d / days - 1), 0, 1), measured: d == null ? L("陆路不可达", "unreachable overland") : L(`实测 ${d} 天`, `measured ${d} days`), at: [W.P.pos[rl.a]] });
     }
   }
   // for settlements that fail a placement constraint, work out whether the constraint set is satisfiable at all
@@ -1345,6 +1455,50 @@ function verify(W, lore) {
   const counted = C.filter(c => c.status !== "declared" && c.status !== "relaxed");
   return { checks: C, fails, rate: counted.length ? counted.filter(c => c.pass).length / counted.length : 1 };
 }
+
+// ---------- layered score ----------
+// A map is judged in three layers, compared in order: the world as a whole (character shares, sea or no sea), then
+// natural plausibility (physics, vegetation that fits the climate), then the details (settlement sites, relations,
+// ranges, river and lake counts, lore). Each layer adds up how far its failing checks miss rather than how many fail:
+// a share 12 points outside its band weighs 12 and a town 0.4% short of the accessibility line almost nothing. Details
+// the author wrote weigh 1 and ones the planner inferred 0.5, times 0.6 for anything the planner invented outright.
+// Declaring a check unsatisfiable halves its detail weight and changes nothing in the first two layers: the reader still
+// sees the map.
+const LAYER_OF = { character: 0, world_sea: 0, river_sink: 1, rain_shadow: 1, underwater: 1, steep: 1, biome_climate: 1 };
+const SCORE_EPS = [1, 0.5, 0.25];          // differences this small within a layer count as a tie
+function layeredScore(W, rep) {
+  const sc = [0, 0, 0];
+  for (const c of rep.checks) {
+    if (c.status !== "fail" && c.status !== "declared") continue;
+    const layer = LAYER_OF[c.code] ?? 2;
+    if (layer === 0) sc[0] += c.code === "world_sea" ? 50 : c.dev ?? 10;
+    else if (layer === 1) sc[1] += 1 + (c.dev || 0) / 5;
+    else {
+      const ent = W.spec.settlements.find(q => q.id === c.target) || W.spec.mountains.find(q => q.id === c.target);
+      sc[2] += (c.source === "proposed" ? 0.5 : 1) * (ent && ent.invented ? 0.6 : 1) * (c.gap ?? 1) * (c.status === "declared" ? 0.5 : 1);
+    }
+  }
+  return sc.map(x => +x.toFixed(2));
+}
+// < 0 when score a is better than b, > 0 when worse, 0 when every layer ties within its tolerance
+function compareScore(a, b) {
+  for (let k = 0; k < 3; k++) { const d = a[k] - b[k]; if (d < -SCORE_EPS[k]) return -1; if (d > SCORE_EPS[k]) return 1; }
+  return 0;
+}
+// a strict order for keeping the best version: the tolerant comparison first, then the raw numbers layer by layer
+function rankScore(a, b) { return compareScore(a, b) || (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]); }
+// A worse round need not be thrown away outright: a small step back now can open a route the strict rule never lets
+// the loop reach. The layers are folded into one cost in detail units (a character point weighs one detail miss, a
+// nature failure two), so a round that loses 2 points of character but fixes 2 towns costs little, and one that
+// floods the map costs ~40. It is kept with probability exp(-cost / T), a Metropolis step whose temperature cools
+// round by round, so early rounds may explore and late ones settle. The loop still ends on the best version it saw.
+const SOFT_W = [1, 2, 1], SOFT_T0 = 1.5, SOFT_COOL = 0.75;
+function softAccept(a, b, it, seed) {
+  const cost = SOFT_W.reduce((s, w, k) => s + w * (a[k] - b[k]), 0), temp = SOFT_T0 * SOFT_COOL ** (it - 1);
+  const p = cost <= 0 ? 1 : Math.exp(-cost / temp), u = rng(seed * 7919 + it * 104729)();
+  return { cost: +cost.toFixed(2), temp: +temp.toFixed(2), p, ok: u < p };
+}
+const scoreText = sc => L(`特征 ${sc[0]} · 自然 ${sc[1]} · 细节 ${sc[2]}`, `character ${sc[0]} · nature ${sc[1]} · detail ${sc[2]}`);
 
 // ---------- tools ----------
 const MOVE_TARGETS = ["nearest_coast", "nearest_river", "nearest_river_mouth", "nearest_lake", "near_mountain", "flattest_nearby", "accessible", "defensible"];
@@ -1377,12 +1531,12 @@ const TOOL_DOC = `fill_depressions()  — switch hydrology to priority-flood: de
 recompute_climate()  — replace noise moisture with an orographic model driven by wind_from (creates rain shadows).
 raise_ridge(region, amount)  — raise the mountain ridge in a region (amount 0.02–0.2); creates a ridge if none exists there.
 carve_basin(region)  — dig a shallow basin in a region; after fill_depressions it becomes a lake.
-set_river_threshold(value)  — flow accumulation needed to draw a river (60–800, current value given). Lower = more and longer rivers.
+set_river_threshold(value)  — flow accumulation needed to draw a river (current value given). Lower = a denser network everywhere, so it is a last resort: when channels end in closed basins, fill_depressions alone usually creates the major rivers, so fill first and look. Lowering is refused in the round that also fills, and while there are enough major rivers and every settlement needing a river has one in its region; it can drop by at most 40% per call (60% while major rivers are missing) and never below the climate's floor, which keeps dry lands to a few large rivers. For a town that must be on a river, move_settlement it with nearest_river instead.
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
 declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
-set_landform(landform)  — rebuild land and sea from another template: coast | continent | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered | lakeland | highland. Towns left at sea are pulled back to land.
-set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome; under a dry climate, lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
+set_landform(landform)  — rebuild land and sea from another template. With sea: coast | bay (coast with one large gulf) | two_coasts (sea on two sides) | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | basin (lowland ringed by mountains) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
+set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome and sets how much water the land yields: drier and hotter means fewer and shorter rivers, and in a dry or arid climate rivers lose water on the way, so only large ones cross the desert; lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
 // The negotiator's only tool. It is deliberately not in TOOL_DOC: the repair agent edits terrain, the negotiator
 // edits the goal, and keeping the two tool sets apart is what makes the stage separable in an ablation.
 const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of a settlement's constraints for a weaker one instead of failing it.
@@ -1392,6 +1546,37 @@ const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of 
   reason: one Chinese sentence naming what in the description justifies the trade.
   The tool refuses any item the solver did not put in a conflict core, any swap that is not a weakening, and any call without a reason.`;
 
+// Lowering the river threshold thickens the whole network at once, so it is the last resort, not the first: there is
+// a floor, one call can cut the value by at most 40% (60% while major rivers are still missing), and it is refused
+// while it cannot help.
+// Two cases where it cannot: hydrology is still unfilled and this same round fills it (every channel used to end in a
+// closed basin, and filling alone usually yields the major rivers, so look first), or the map already has enough
+// major rivers and every settlement that needs one has a river in its own region (move the town instead).
+// The floor is a smallest catchment, in cells, that may count as a river: larger in a dry climate, where only big
+// rivers should show. With the climate's runoff model the threshold is in water units, so the catchment is turned into
+// water by the per-cell yield (the yield already makes dry lands need far more ground per river); without a climate the
+// old fixed floor of 90 applies.
+const RIVER_FLOOR_CELLS = { arid: 600, dry: 300, normal: 115, humid: 80 };
+function riverFloor(P, spec, W) {
+  const cz = P.cz !== undefined ? P.cz : spec.climate_zone, water = runoffOf(P, cz, kmOf(W));
+  return water ? Math.max(10, Math.round(RIVER_FLOOR_CELLS[(cz || {}).humidity || "normal"] * water.q)) : 90;
+}
+function riverLowerBlock(W, P, acts) {
+  if (W.P.hydro !== "filled" && acts.some(a => a.tool === "fill_depressions"))
+    return ["本轮已经在填洼，先看填洼后形成的河流再决定", "this round already fills depressions; see the rivers that makes first"];
+  if (W.hy.rivers.length < W.spec.min_major_rivers) return null;
+  // a town that needs a river, or a river mouth on the sea, in a region that has none
+  const dry = W.spec.settlements.filter(s => {
+    const items = effItems(W.P, W.spec, s), reg = effRegion(W.P, s) || regionOf(...W.P.pos[s.id]);
+    return (items.includes("on_river") && !regionHasRiver(W, reg)) || (items.includes("river_mouth") && !W.hy.rivers.some(r => r.kind === "sea" && r.mouthRegion === reg));
+  });
+  if (dry.length) return null;
+  return ["大河数量已够，需要临河的聚落所在区域也都有河；请用 move_settlement 把聚落移到河边", "there are enough major rivers and every settlement that needs one has a river in its region; move the settlement with move_settlement"];
+}
+function regionHasRiver(W, region) {
+  for (let i = 0; i < NN; i++) if (W.hy.channel[i] && !W.hy.lake[i] && regionOf(i % N, Math.floor(i / N)) === region) return true;
+  return false;
+}
 function applyActions(W, actions) {
   const spec = W.spec; const P = deep(W.P); const results = [];
   P.relaxed = P.relaxed || [];
@@ -1399,7 +1584,7 @@ function applyActions(W, actions) {
   const order = ["relax_constraint", "declare_unsatisfiable", "set_landform", "set_climate", "set_sea_level", "raise_ridge", "carve_basin", "recompute_climate", "fill_depressions", "set_river_threshold"];
   const acts = (Array.isArray(actions) ? actions : []).slice(0, 12).map(a => ({ tool: String(a && a.tool || ""), args: (a && a.args) || {} }));
   acts.sort((a, b) => (order.indexOf(a.tool) + 99) % 99 - (order.indexOf(b.tool) + 99) % 99);
-  let terrainChanged = false, landformChanged = false;
+  let terrainChanged = false;
   for (const a of acts) {
     const g = a.args;
     switch (a.tool) {
@@ -1422,8 +1607,11 @@ function applyActions(W, actions) {
       case "set_landform": {
         const lf = String(g.landform || "");
         if (!LANDFORMS.includes(lf)) { results.push({ a, ok: false, msg: L(`未知地形模板 ${lf}`, `unknown landform ${lf}`) }); break; }
+        // whether the world touches the sea is the author's call (spec.ocean_side), not a knob for fixing biome shares
+        const inland = spec.ocean_side === "none";
+        if (inland !== (LANDFORM_SIDE[lf] === "none")) { results.push({ a, ok: false, msg: inland ? L(`这是内陆世界，不能换成有海的「${LANDFORM_ZH[lf]}」`, `this world is landlocked; it cannot become "${LANDFORM_ZH[lf]}", which has sea`) : L(`这个世界临海，不能换成内陆的「${LANDFORM_ZH[lf]}」`, `this world has sea; it cannot become the landlocked "${LANDFORM_ZH[lf]}"`) }); break; }
         const was = P.landform !== undefined ? P.landform : spec.landform;
-        P.landform = lf; terrainChanged = true; landformChanged = true;
+        P.landform = lf; terrainChanged = true;
         results.push({ a, ok: true, msg: L(`地形模板 ${LANDFORM_ZH[was] || "默认海岸"} → ${LANDFORM_ZH[lf]}`, `landform ${LANDFORM_ZH[was] || "default coast"} → ${LANDFORM_ZH[lf]}`) }); break;
       }
       case "set_climate": {
@@ -1433,7 +1621,18 @@ function applyActions(W, actions) {
         const T = L({ polar: "极寒", cold: "寒冷", temperate: "温和", warm: "温暖", hot: "炎热" }, { polar: "polar ", cold: "cold ", temperate: "temperate ", warm: "warm ", hot: "hot " }), H = L({ arid: "干旱", dry: "偏干", normal: "适中", humid: "湿润" }, { arid: "arid", dry: "dry", normal: "moderate", humid: "humid" });
         results.push({ a, ok: true, msg: L(`气候 ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`, `climate ${T[cur.temperature]}${H[cur.humidity]} → ${T[t]}${H[w]}`) }); break;
       }
-      case "set_river_threshold": { const v = clamp(Math.round(+g.value || P.riverThr), 60, 800); results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break; }
+      case "set_river_threshold": {
+        const floor = riverFloor(P, spec, W), short = W.hy.rivers.length < spec.min_major_rivers;
+        let v = clamp(Math.round(+g.value || P.riverThr), Math.min(60, floor), 800);
+        if (v < P.riverThr) {
+          const why = riverLowerBlock(W, P, acts);
+          if (why) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：${why[0]}`, `river threshold stays ${P.riverThr}: ${why[1]}`) }); break; }
+          // a bigger step is allowed while the map still lacks the major rivers it needs
+          v = Math.max(v, Math.round(P.riverThr * (short ? 0.4 : 0.6)), floor);
+          if (v >= P.riverThr) { results.push({ a, ok: false, msg: L(`河流阈值保持 ${P.riverThr}：已到这种气候的下限 ${floor}`, `river threshold stays ${P.riverThr}: already at this climate's floor of ${floor}`) }); break; }
+        }
+        results.push({ a, ok: true, msg: L(`河流阈值 ${P.riverThr} → ${v}`, `river threshold ${P.riverThr} → ${v}`) }); P.riverThr = v; terrainChanged = true; break;
+      }
       case "set_sea_level": { const v = clamp(+g.value || P.sea, 0.30, 0.50); results.push({ a, ok: true, msg: L(`海平面 ${P.sea.toFixed(2)} → ${v.toFixed(2)}`, `sea level ${P.sea.toFixed(2)} → ${v.toFixed(2)}`) }); P.sea = v; terrainChanged = true; break; }
       case "declare_unsatisfiable": { const id = String(g.check_id || ""); if (!P.unsat.includes(id)) P.unsat.push(id); results.push({ a, ok: true, msg: L(`声明无法满足：${id}`, `declared unsatisfiable: ${id}`) }); break; }
       case "relax_constraint": {
@@ -1458,11 +1657,42 @@ function applyActions(W, actions) {
     }
   }
   const W2 = derive(spec, P);
-  // a new landform can leave towns at sea: pull each back to the nearest dry, flat ground in its region
-  if (landformChanged) for (const st of spec.settlements) if (!isDry(W2, posIdx(W2, st.id)) && !moves.some(m => String(m.args.id) === st.id))
-    results.push(moveSettlement(W2, { tool: "move_settlement", args: { id: st.id, targets: [] } }));
+  // the ground changed under the settlements: re-site every one the change broke (explicit moves handle their own)
+  if (terrainChanged) for (const st of spec.settlements) if (!moves.some(m => String(m.args.id) === st.id)) {
+    const r = resite(W, W2, st); if (r) results.push(r);
+  }
   for (const a of moves) results.push(moveSettlement(W2, a));
   return { W: W2, results, terrainChanged };
+}
+// How a settlement sits on its ground: the site must be dry and not steep, and each of its own site requirements
+// (coast, on_river, accessible...) either holds there or not. Relaxed items count in their weaker form; requirements
+// declared unsatisfiable are left out.
+function siteState(W, s) {
+  const i = posIdx(W, s.id), reqs = {};
+  for (const t of ownedItems(W.spec, s)) {        // check ids follow the original item, the test follows its relaxed form
+    const r = relaxFind(W.P, s.id, t), q = r ? r.to : t;
+    if (q && REQ_TEST[q] && !W.P.unsat.includes(`spec.req.${s.id}.${t}`)) reqs[q] = REQ_TEST[q](W, i);
+  }
+  return { dry: isDry(W, i), steep: slopeAt(W, i) > SLOPE_MAX, reqs };
+}
+// After a terrain change, compare each site on the old and the new ground. A site that is now under water, newly
+// steep, or has lost a requirement it used to meet moves to the nearest ground that keeps every requirement it met
+// before; if no such ground exists, a flooded town still goes to the nearest dry, flat cell. Sites that were already
+// failing for other reasons are left alone: that is the repair agent's call. Returns null when nothing changed.
+function resite(W0, W1, s) {
+  const a = siteState(W0, s), b = siteState(W1, s);
+  const lost = Object.keys(b.reqs).filter(q => a.reqs[q] && !b.reqs[q]);
+  const why = [!b.dry ? L("落入水中", "is now under water") : null, b.dry && b.steep && !a.steep ? L("变成陡坡", "is now on a steep slope") : null,
+    ...lost.map(q => L(`失去「${ITEM_ZH(q)}」`, `lost "${ITEM_ZH(q)}"`))].filter(Boolean);
+  if (!why.length) return null;
+  const from = W1.P.pos[s.id].slice(), keep = Object.keys(b.reqs).filter(q => a.reqs[q]).map(q => REQ_TARGET[q]);
+  let r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: keep } });
+  // a town still on dry ground does not get flung out of its region to keep a requirement: it stays and fails it
+  if (r.ok && r.outside && b.dry) { W1.P.pos[s.id] = from; r = { ok: false }; }
+  if (!r.ok && !b.dry) r = moveSettlement(W1, { tool: "move_settlement", args: { id: s.id, targets: [] } });
+  const head = L(`地形变化后${s.name}${why.join("、")}`, `After the terrain change ${s.name} ${why.join(", ")}`);
+  return { a: { tool: "resite", args: { id: s.id } }, ok: r.ok, auto: true, from, to: W1.P.pos[s.id].slice(),
+    msg: r.ok ? `${head} → ${L("自动重新选址：", "re-sited: ")}${r.msg}` : `${head}${L("，附近没有合适的位置，留在原处", "; no suitable ground nearby, left in place")}` };
 }
 function moveSettlement(W, a) {
   const id = String(a.args.id || ""); const s = W.spec.settlements.find(q => q.id === id);
@@ -1663,7 +1893,8 @@ function randomSpec(seed) {
     } for (let t = 0; t < 40; t++) { const a = pick(HAMLET_A), b = pick(HAMLET_A), n = ((two || r() < 0.7) && a !== b ? a + b : a) + suf; if (!used.has(n)) { used.add(n); return n; } } return pick(HAMLET_A) + suf; };
   const landform = pick(LANDFORMS);
   const sea = LANDFORM_SIDE[landform] !== "none";
-  const ocean_side = ["coast", "fjords", "peninsula"].includes(landform) ? pick(["E", "W", "N", "S"]) : LANDFORM_SIDE[landform];
+  const ocean_side = ["coast", "fjords", "peninsula", "bay"].includes(landform) ? pick(["E", "W", "N", "S"])
+    : landform === "two_coasts" ? pick(["NE", "NW", "SE", "SW", "NS", "EW"]) : LANDFORM_SIDE[landform];
   const temperature = wpick({ polar: 1, cold: 2, temperate: 4, warm: 2, hot: 2 }), humidity = wpick({ arid: 1, dry: 2, normal: 4, humid: 2 });
   const era = wpick({ medieval: 5, modern: 2, future: 1.5, alien: 1.5 });
   const wseed = Math.floor(r() * 99999) + 1;
@@ -1720,5 +1951,5 @@ function describeSpec(sp) {
     + s.settlements.map(t => `${RG(t.region)}有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
 }
 
-if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
+if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, softAccept, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
 // ===================== END CORE =====================

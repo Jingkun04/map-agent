@@ -164,7 +164,9 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 #ctl3d { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 #ctl3d input[type=range] { width: 110px; accent-color: var(--chart); }
 #ctl3d button { padding: 4px 10px; font-size: 13px; }
-#histNote { position: absolute; top: 8px; right: 8px; background: var(--ink); color: var(--panel); font-size: 12px; padding: 3px 8px; border-radius: 3px; }
+#histNote { position: absolute; top: 8px; right: 8px; background: var(--ink); color: var(--panel); font-size: 12px; padding: 3px 8px; border-radius: 3px; display: flex; align-items: center; gap: 8px; }
+#histNote[hidden] { display: none; }
+#histNote button { border-color: var(--panel); color: var(--panel); font-size: 12px; padding: 1px 8px; }
 .readout { font-size: 12px; color: var(--muted); margin: 6px 0 0; min-height: 1.6em; }
 #scrub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .snap { display: inline-flex; gap: 8px; align-items: center; padding: 4px 10px; font-size: 13px; border-color: var(--line); }
@@ -283,6 +285,11 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       </select>
       <label class="f" for="maxIter">最多迭代轮数</label>
       <input type="number" id="maxIter" value="6" min="1" max="10">
+      <label class="f" for="onWorse">评分变差的一轮</label>
+      <select id="onWorse">
+        <option value="soft">按变差程度以一定概率接受（越差越难）</option>
+        <option value="strict">一律回滚</option>
+      </select>
     </details>
     <details><summary>当前 WorldSpec</summary><pre id="specView">（运行后显示）</pre></details>
   </section>
@@ -306,7 +313,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
         <label><input type="checkbox" data-layer="grid" checked>分区</label>
       </div>
     </div>
-    <div class="canvasbox"><canvas id="map" width="1024" height="1024" aria-label="生成的区域地图（平面）"></canvas><div id="view3d" hidden><canvas id="map3d" tabindex="0" aria-label="生成的区域地图（3D 沙盘，可用方向键旋转）"></canvas><div id="labels3d"></div></div><div id="gamemap" hidden><canvas id="gmCanvas" width="1600" height="1600" aria-label="游戏风格地图"></canvas></div><span id="histNote" hidden>正在看历史快照；编辑总是基于最新一版</span></div>
+    <div class="canvasbox"><canvas id="map" width="1024" height="1024" aria-label="生成的区域地图（平面）"></canvas><div id="view3d" hidden><canvas id="map3d" tabindex="0" aria-label="生成的区域地图（3D 沙盘，可用方向键旋转）"></canvas><div id="labels3d"></div></div><div id="gamemap" hidden><canvas id="gmCanvas" width="1600" height="1600" aria-label="游戏风格地图"></canvas></div><span id="histNote" hidden><span>正在看历史快照；编辑总是基于最新一版</span><button type="button" id="restoreSnap" title="把正在看的这一版复制为最新一版；之后的编辑都基于它，原来的各版仍留在时间线上">恢复这一版</button></span></div>
     <p class="readout" id="readout">把鼠标移到地图上查看格点信息。</p>
     <div id="scrub" aria-label="迭代快照"></div>
   </section>

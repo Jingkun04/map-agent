@@ -216,6 +216,7 @@ function initControls() {
   $("#stop").onclick = () => { if (S.ctl) S.ctl.abort(); };
   $("#loreBtn").onclick = () => genLore();
   $("#moveBtn").onclick = () => editMove();
+  $("#restoreSnap").onclick = () => restoreSnap();
   $("#ridgeBtn").onclick = () => editRidge();
   $("#styleEra").onchange = () => { $("#stylePat").value = ERA_DEFAULT[$("#styleEra").value].street_pattern; };
   $("#restyleBtn").onclick = () => restyle();
@@ -340,7 +341,7 @@ const I18N_EN = {
   "key 不会写进页面或上传到别处，只随请求发给 openrouter.ai。": "The key is never written into the page or sent anywhere except with requests to openrouter.ai.",
   "模型档位": "Model tier", "高级设置（实验用）": "Advanced (for experiments)", "验证器给 agent 的反馈": "Verifier feedback to the agent",
   "结构化违规报告": "Structured violation report", "只告诉通过或不通过": "Pass / fail only", "不反馈，只生成一次": "No feedback, generate once",
-  "最多迭代轮数": "Max iterations", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
+  "最多迭代轮数": "Max iterations", "评分变差的一轮": "A round that worsens the score", "按变差程度以一定概率接受（越差越难）": "Keep it with a chance that falls as it gets worse", "一律回滚": "Always roll it back", "当前 WorldSpec": "Current WorldSpec", "（运行后显示）": "(shown after a run)",
   "地图": "Map", "全屏": "Fullscreen", "退出全屏": "Exit fullscreen", "让地图面板占满整个屏幕，按 Esc 退出": "Fill the screen with the map panel; Esc exits",
   "复位": "Reset", "滚轮缩放，拖动平移，双击复位": "Scroll to zoom, drag to pan, double-click to reset",
   "保存平面图": "Save flat map", "把平面地图（含水系、聚落和标注）保存成 PNG 图片": "Save the flat map (with water, towns and marks) as a PNG",
@@ -351,6 +352,8 @@ const I18N_EN = {
   "底图": "Base", "地图册": "Atlas", "地形浮雕": "Relief", "高程": "Elevation", "水系": "Water", "聚落": "Towns", "违规标记": "Violations", "分区": "Grid",
   "生成的区域地图（平面）": "Generated region map (flat)", "生成的区域地图（3D 沙盘，可用方向键旋转）": "Generated region map (3D, arrow keys rotate)", "游戏风格地图": "Game-style map",
   "正在看历史快照；编辑总是基于最新一版": "Viewing an earlier snapshot; edits always apply to the latest",
+  "恢复这一版": "Restore this version",
+  "把正在看的这一版复制为最新一版；之后的编辑都基于它，原来的各版仍留在时间线上": "Copy the version you are viewing to the end as the latest; later edits build on it, and every other version stays in the timeline",
   "把鼠标移到地图上查看格点信息。": "Hover the map to read a cell.", "迭代快照": "Iteration snapshots",
   "验证与修正": "Verification and repair", "检查结果": "Checks", "城市详图": "City plans",
   "每个聚落都会按地形、水系和进城道路生成规划：先划分功能片区，街道网格对齐主干道，再放置广场、教堂、医院等地标。点击地图上的城镇也能切换到这里。把鼠标移到图例上可以单独突出某一类片区。":
@@ -499,7 +502,7 @@ function saveRecord() {
     landform: S.spec.landform || "", scale: S.spec.scale || "region", engine: S.recordEng || "offline",
     spec: S.spec, P: sn.W.P, lore: S.lore, trace: S.trace.map(t => ({ ...t, pending: null })),
     traj: S.trajOverride || S.snaps.filter(x => x.kind !== "edit").map(x => reportOf(x).fails.length),
-    fails: rep.fails.length, rate: rep.rate, calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
+    fails: rep.fails.length, rate: rep.rate, score: scoreOf(sn), calls: S.llmCalls, fit: S.fit, elapsed: S.elapsed, thumb: thumbOf(sn),
   };
   S.hist = [rec, ...S.hist.filter(r => r.id !== rec.id)].slice(0, HIST_MAX);     // show it at once; the store catches up
   renderHistory(); $("#histWrap").open = true;
@@ -580,6 +583,7 @@ function pushSnap(W, label, kind) {
   S.cur = S.snaps.length - 1;
   refreshAll();
 }
+function scoreOf(sn) { const rep = reportOf(sn); if (sn.scoreRep !== rep) { sn.score = layeredScore(sn.W, rep); sn.scoreRep = rep; } return sn.score; }
 function reportOf(sn) {
   if (!sn.rep || sn.repLore !== S.loreVersion || sn.repLang !== LANG) { sn.rep = verify(sn.W, sn === last() ? activeLore() : null); sn.repLore = S.loreVersion; sn.repLang = LANG; }
   return sn.rep;
@@ -624,8 +628,8 @@ async function llmJSON(prompt, what, item, retried) {
 }
 
 const SPEC_SCHEMA = () => `{"name": string, "seed": integer,
- "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland",
- "ocean_side": "E"|"W"|"N"|"S"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
+ "landform": "coast"|"continent"|"archipelago"|"islands"|"peninsula"|"isthmus"|"inland_sea"|"fjords"|"volcanic_island"|"shattered"|"lakeland"|"highland"|"plains"|"basin"|"bay"|"two_coasts",
+ "ocean_side": "E"|"W"|"N"|"S"|"NE"|"NW"|"SE"|"SW"|"NS"|"EW"|"all"|"none", "wind_from": "E"|"W"|"N"|"S",
  "scale": "region"|"kingdom"|"continent",
  "climate_zone": {"temperature": "polar"|"cold"|"temperate"|"warm"|"hot", "humidity": "arid"|"dry"|"normal"|"humid"},
  "mountains": [{"name": string, "region": R, "angle": 0-179, "length": "short"|"medium"|"long", "invented": boolean}],
@@ -646,17 +650,26 @@ R is one of NW, N, NE, W, C, E, SW, S, SE (a 3x3 grid, north is up). The map is 
 ground it covers: region = 1024 km across (a province), kingdom = 2048 km, continent = 4096 km.
 
 landform — the shape of land and sea, drawn fresh from the seed each time:
-  coast: mainland with the sea on ocean_side, bays and offshore islets · continent: one large landmass ringed by sea
+  coast: mainland with the sea on ocean_side, bays and offshore islets
+  continent: one island continent with sea on every side (Australia) — about the sea, not about size or scale
+  bay: mainland with the sea on ocean_side and one large gulf reaching deep inland through a narrower mouth
+  two_coasts: sea on two sides — a corner of land (ocean_side NE, NW, SE, SW) or a strip between two seas (NS, EW)
   archipelago: many islands · islands: two or three large islands · peninsula: a long arm of land into the sea
   isthmus: two landmasses joined by a narrow neck · inland_sea: land around an enclosed sea with one strait out
   fjords: a mountainous coast cut by long narrow inlets · volcanic_island: one island around a volcanic peak
-  shattered: a landmass broken by winding straits · lakeland: landlocked, dotted with lakes · highland: landlocked plateau split by a rift valley
+  shattered: a landmass broken by winding straits
+  Landlocked, no sea anywhere on the map:
+  plains: low, flat, open interior (steppe, prairie, farmland) · lakeland: dotted with many lakes
+  basin: a lowland ringed by mountains that drains out through one gorge (Sichuan, Tarim)
+  highland: a raised plateau split by a rift valley — high ground runs cold and rugged, so pick it only for uplands
 mountains.angle — the direction a range runs, in degrees: 0 = east-west, 90 = north-south, 45 = from NW to SE... any value.
 climate_zone shifts the whole map: hot+humid gives jungle, hot+arid desert and savanna, polar gives ice and tundra.
 character — measurable expectations about the map as a whole. M is one of:
   land_share (land / whole map) · lake_share · mountain_share · desert_share (desert + salt flat) · grass_share
   (grassland, steppe, savanna) · forest_share · cold_share (ice, tundra, snow) · wetland_share — each a share of the land —
-  and islands (number of separate landmasses). Levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.
+  and islands (number of separate landmasses, small islets included). Levels: none ≤ 2%, low ≤ 15%, moderate 10–40%,
+  high ≥ 35%, dominant ≥ 55%. The checks allow some slack (about 5 points on a share, a few extra islets on a count),
+  so pick the level that reads right instead of aiming at a boundary, and give islands a range, not one number.
   Typical values: a temperate coast is ~60-80% land with lake_share ~2-5%; lakeland lake_share 10-20%; an archipelago
   has 5-12 landmasses and land_share 25-45%.
 
@@ -675,10 +688,13 @@ ${SPEC_SCHEMA()}
 
 You do five jobs at once. Do the first one first: everything after it must serve it.
 
-0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-5 "character"
-   expectations that the description implies and a reader would check at a glance: a desert empire is dominated by
+0. OVERALL CHARACTER — before any place, decide what this world is like as a whole and write 2-4 "character"
+   expectations that the description states or clearly implies and a reader would check at a glance: a desert empire is dominated by
    desert and has almost no lakes; a Viking archipelago has many islands and a cold climate; a jungle kingdom is
-   mostly forest. Each needs a ${LANGN()} "why". These rank ABOVE every site constraint: when a town's requirement
+   mostly forest. Each needs a ${LANGN()} "why". Leave out what the description is silent on: "a grassland realm"
+   implies grass dominates, not that forests, lakes and deserts must each stay low. Every expectation is a rule the
+   generator must obey, so a few that matter leave it room to make a varied, believable map; a long list of guesses
+   boxes it in. These rank ABOVE every site constraint: when a town's requirement
    would break the world's character (a lakeside town in a desert with no lakes), the town gives way, not the world.
    Then choose landform, climate_zone and scale so that the character holds.
 
@@ -703,6 +719,9 @@ You do five jobs at once. Do the first one first: everything after it must serve
      a prosperous trading town needs "accessible" — wealth follows traffic, and a town walled in by mountains cannot trade
      a border fortress needs "defensible" — it exists to hold ground
      a mill town belongs on a river; a fishing village belongs on the coast
+   Use on_river and river_mouth sparingly: only for a settlement whose role depends on a river (mill, ferry, river port,
+   irrigated fields) or that the description puts on one — about a third of the settlements at most. Give invented
+   settlements other requirements where they fit just as well (accessible, near_mountain, coast, defensible).
    Propose only what the seven checkable site predicates can express. Do NOT propose relations between settlements
    here: the rivers and roads do not exist yet. Atmosphere ("常年有雾", "闹鬼的矿镇") is NOT a constraint.
    Proposed and invented items are relaxed before explicit ones when something is impossible, so a guess is cheap.
@@ -713,16 +732,28 @@ You do five jobs at once. Do the first one first: everything after it must serve
    much taller structures. Pick "landmarks" as the vocabulary that fits that world.
 
 Rules:
+- Land and sea come from what the description says about the sea. If it names no sea, use a landlocked template
+  (plains, basin, lakeland, highland) when it says inland, and otherwise coast, bay or two_coasts with the sea on the
+  side that fits the setting. Put sea on every side (continent, islands, archipelago, volcanic_island, isthmus,
+  shattered) only when the description says so: an island, an island realm, a land surrounded by ocean. An empire, a
+  large country or scale "continent" is not a reason for it.
 - ocean_side must agree with the landform: "all" for islands, archipelagos, continents and other sea-ringed shapes,
-  "none" for lakeland and highland, the sea side for coast, fjords and peninsula.
+  "none" for plains, basin, lakeland and highland, the sea side for coast, bay, fjords and peninsula, and the two
+  sides for two_coasts.
+- A description that says the land is inland, landlocked or far from the sea ("内陆", "深居内陆", "不靠海") needs a
+  landlocked landform; "continent" is NOT inland, it is an island continent ringed by sea. Inland grassland, steppe or
+  farmland is "plains" unless the description asks for highlands or many lakes.
 - A port, or anything that requires "coast", needs a landform with sea. Settlement regions must be places the
   landform puts land (on an archipelago the centre may be open sea).
 - Small islands are low and open: "accessible" (a corridor through hard country) and "defensible" (a commanding
   height) rarely hold there, so on archipelagos and small islands prefer coast, river_mouth and on_river for the
   settlements you invent. Set min_lakes above 0 only when the description names lakes or the landform is lakeland.
 - "lakeland" means a country of many large lakes (Finland, Canadian shield). A desert with oases is NOT lakeland: use
-  highland, continent or coast with an arid climate_zone; the generator's water balance then keeps only small lakes
+  plains, basin, highland, coast or bay with an arid climate_zone; the generator's water balance then keeps only small lakes
   (the oases) and dries the rest of each basin into salt flats. Oasis towns can require "lakeside" or "on_river".
+- min_major_rivers follows the description: the number it names, otherwise 1 for deserts and arid or dry lands, 2 for a
+  temperate land, 3 or more only when the description stresses rivers. Every extra river the map must have pushes the
+  generator to thicken the whole river network.
 - At most 8 mountains and 20 settlements; seed is any integer from 1 to 99999.
 - If the description asks for something impossible (a port in a landlocked region), keep it anyway: the verifier
   will find the conflict and report it. Never quietly fix the user's intent.
@@ -783,7 +814,8 @@ function regionSummary(W) {
 
 async function llmRepair(W, rep, hist, fb, item) {
   const params = {
-    sea_level: +W.P.sea.toFixed(2), hydrology: W.P.hydro, climate: W.P.climate, river_threshold: W.P.riverThr,
+    sea_level: +W.P.sea.toFixed(2), hydrology: W.P.hydro, climate: W.P.climate, river_threshold: W.P.riverThr, river_threshold_floor: riverFloor(W.P, W.spec, W),
+    water_per_cell: (runoffOf(W.P, W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone, kmOf(W)) || { q: "0.3 + moisture (no climate set)" }).q,
     ridges: W.P.ridges.map(r => ({ region: r.region, orientation: r.orientation, amp: +r.amp.toFixed(2) })),
     basins: W.P.basins.map(b => b.region), declared_unsatisfiable: W.P.unsat,
     landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)",
@@ -791,6 +823,9 @@ async function llmRepair(W, rep, hist, fb, item) {
     map_stats: mapStats(W),
     relaxed_constraints: (W.P.relaxed || []).map(r => ({ settlement: r.sid, was: r.item, now: r.to, why: r.reason })),
     settlement_regions: Object.fromEntries(W.spec.settlements.map(s => [s.id, regionOf(...W.P.pos[s.id])])),
+    layered_score: Object.fromEntries(["character", "nature", "detail"].map((k, j) => [k, layeredScore(W, rep)[j]])),
+    // passing character checks within 3 points of failing: the agent sees only failures otherwise, and kept breaking these
+    near_limits: rep.checks.filter(c => c.code === "character" && c.status === "pass" && c.margin <= 3).map(c => ({ id: c.id, check: c.label, measured: c.measured, points_left: c.margin })),
   };
   const feedback = fb === "structured"
     ? "Structured verifier report (failed checks only):\n" + JSON.stringify(rep.fails.map(f => ({
@@ -799,7 +834,8 @@ async function llmRepair(W, rep, hist, fb, item) {
         conflict: f.conflict ? { core: f.conflict.core, reason: f.conflict.reason } : undefined,
       })), null, 0)
     : "Verifier verdict: FAIL. No further detail is available in this condition.";
-  const history = hist.slice(-3).map((h, k) => ({ round: hist.length - Math.min(3, hist.length) + k + 1, actions: h.actions, results: h.results.map(r => `${r.a.tool}: ${r.ok ? "ok" : "failed"} — ${r.msg}`) }));
+  const history = hist.slice(-3).map((h, k) => ({ round: hist.length - Math.min(3, hist.length) + k + 1, actions: h.actions, results: h.results.map(r => `${r.a.tool}: ${r.ok ? "ok" : "failed"} — ${r.msg}`),
+    ...(h.score ? { score_before: h.score[0], score_after: h.score[1], kept: h.kept } : {}) }));
   const prompt = `You are the repair agent in a regional-map generation loop. The generator is procedural; you can only change it through the tools below. After your actions the map is rebuilt and verified again.
 
 WorldSpec:
@@ -820,12 +856,21 @@ Tools:
 ${TOOL_DOC}
 
 Reply with only JSON: {"analysis": "one or two sentences in ${LANGN()} explaining your plan", "actions": [{"tool": "<name>", "args": {...}}], "stop": false}
-PRIORITY: checks with code "character" describe the world as a whole and outrank every other check. Fix them first,
-usually with set_climate or set_landform. Never trade one away for a town: a round whose edits break a character check
-that was passing is rolled back automatically. If a town's requirement can only be met by breaking the world's
+HOW A ROUND IS JUDGED: after your actions the map gets a layered score [character, nature, detail], lower is better,
+compared layer by layer. character = how many points the whole-map shares miss their tolerated bands by, plus 50 if the
+map has sea where the spec has none or the other way round. nature = physics and climate-vegetation failures (rivers
+without outlet, rain shadow, towns in water or on cliffs, rainforest in a dry climate). detail = settlement sites,
+relations, ranges, river and lake counts, weighted by source (author 1, proposed 0.5, invented ×0.6) and by how near
+the miss is. A round that does not make an earlier layer worse is kept; changes under 1 / 0.5 / 0.25 count as a tie.
+A worse round is usually undone: it may still be kept by chance, less likely the more it costs (a character point
+counts as one detail miss, a nature failure as two) and less likely in later rounds, and the run ends on the best
+version seen anyway. An undone round keeps its settlement moves and declarations when they alone help. So fix
+character first, usually with set_climate or set_landform, never trade it for a town, and leave "near_limits" checks
+alone: they pass now but have only a few points left. If a town's requirement can only be met by breaking the world's
 character (a lakeside town in a lakeless desert), call declare_unsatisfiable on that town's check with a reason naming
-the character expectation.
-A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (e.g. lower the river threshold, carve a basin) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
+the character expectation; a declared detail still costs half its weight, and declaring a character or nature check
+changes nothing in the score.
+A check carrying a "conflict" has been proved unsatisfiable together with the rest of its core; a separate negotiator stage decides what to give up there, so do not spend edits on it. Use the fewest edits that address the failures. Terrain and hydrology tools run before settlement moves within a round. If a move failed or kept a settlement outside its region, change the terrain (raise a ridge, carve a basin; lower the river threshold only if that region has no river at all) instead of repeating it. If a check cannot be satisfied at all, call declare_unsatisfiable with its id. Set "stop": true only when nothing useful is left to try.`;
   const out = await llmJSON(prompt, L("决定修正动作", "choosing repairs"), item);
   return { analysis: String(out.analysis || ""), actions: Array.isArray(out.actions) ? out.actions : [], stop: !!out.stop };
 }
@@ -838,7 +883,7 @@ function charSummary(W) {
   let land = 0; for (let i = 0; i < NN; i++) if (!W.ocean[i]) { land++; bc[W.biome[i]] = (bc[W.biome[i]] || 0) + 1; }
   const biomes = Object.fromEntries(Object.entries(bc).sort((a, b) => b[1] - a[1]).filter(([, n]) => n / land >= 0.01).map(([b, n]) => [b, +(n / land).toFixed(2)]));
   return {
-    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)", scale: W.spec.scale || "region",
+    landform: W.P.landform !== undefined ? W.P.landform : W.spec.landform || "coast (default)", ocean_side: W.spec.ocean_side, scale: W.spec.scale || "region",
     climate_zone: (W.P.cz !== undefined ? W.P.cz : W.spec.climate_zone) || { temperature: "temperate", humidity: "normal" },
     stats: st, biome_shares_of_land: biomes,
     settlements: W.spec.settlements.map(s => ({ name: s.name, type: s.type, region: regionOf(...W.P.pos[s.id]), biome: W.biome[posIdx(W, s.id)] })),
@@ -863,7 +908,8 @@ big lakes; a frozen archipelago should be many cold islands; a river delta needs
 
 Reply with only JSON:
 {"fits": true|false, "score": 1-5 (5 = clearly the place described), "issues": ["short ${LANGN()} sentences, most important first"],
-${final ? `"actions": []}` : `"add_character": [character expectations the map should meet but nobody declared, same shape as above:
+${final ? `"actions": []}` : `"add_character": [at most two character expectations the map should meet but nobody declared, same shape as above;
+   add one only when the map clearly contradicts something the description says, not to pin down a share it never mentions:
    {"metric": ..., "level": ... | "min"/"max" for islands, "why": ${LANGN()}}],
  "actions": [{"tool": "<name>", "args": {...every argument the tool lists...}}] — tool calls that fix the world as a whole,
    from: set_landform, set_climate, raise_ridge, carve_basin, set_sea_level, set_river_threshold}
@@ -871,12 +917,14 @@ ${final ? `"actions": []}` : `"add_character": [character expectations the map s
 Tools:
 ${TOOL_DOC.split("\n").filter(l => /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)/.test(l)).join("\n")}
 
-Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.`}
-Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%.`;
+Change the landform or climate only when the current one clearly contradicts the description; an empty actions list is fine.
+A landlocked world (ocean_side "none") stays landlocked: fix its biome shares with another landlocked template or the climate, never by adding sea.`}
+Character metrics: ${Object.keys(CHAR_METRICS).join(", ")}; levels: none ≤ 2%, low ≤ 15%, moderate 10–40%, high ≥ 35%, dominant ≥ 55%,
+checked with about 5 points of slack; islands counts small islets too, so give it a range.`;
   const out = await llmJSON(prompt, final ? L("终审：对照描述", "final review against the description") : L("审阅：对照描述", "review against the description"), item);
   return {
     fits: !!out.fits, score: clamp(Math.round(+out.score || 0), 0, 5), issues: (Array.isArray(out.issues) ? out.issues : []).map(String).slice(0, 6),
-    add: final ? [] : normalizeCharacter(out.add_character, "critic"),
+    add: final ? [] : normalizeCharacter(out.add_character, "critic").slice(0, 2),
     actions: final ? [] : (Array.isArray(out.actions) ? out.actions : []).filter(a => a && /^(set_landform|set_climate|raise_ridge|carve_basin|set_sea_level|set_river_threshold)$/.test(a.tool)).slice(0, 6),
   };
 }
@@ -998,8 +1046,14 @@ function normalizeEntries(list, W, idOffset) {
 // ---------- the agent loop ----------
 async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
   const hist = [];
-  let rep = verify(W, withLore ? activeLore() : null);
+  const lore = () => withLore ? activeLore() : null;
+  let rep = verify(W, lore()), score = layeredScore(W, rep);
+  // the best version seen so far, by the layered score; the loop hands back this one, not simply the last
+  let best = { W, score };
+  const keepBest = () => { if (rankScore(score, best.score) < 0) best = { W, score }; };
+  const callOf = x => `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`;
   const negotiated = new Set();          // one negotiation per distinct conflict core, never the same core twice
+  const soft = ($("#onWorse") || {}).value !== "strict";
   for (let it = 1; it <= maxIter; it++) {
     if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("验证器没有发现剩余违规，循环结束。", "The verifier finds nothing left; the loop ends.") }); break; }
     // Conflict resolution runs first: editing terrain towards a goal the solver has proved unreachable is wasted work.
@@ -1014,15 +1068,23 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
         try { dec = eng === "claude" ? await llmNegotiate(W, briefs, desc, ni) : scriptedNegotiate(W, briefs); }
         catch (e) { ni.body += L(` 让步决策失败：${e.message || e}`, ` Negotiation failed: ${e.message || e}`); }
         if (dec.actions.length) {
-          const r = applyActions(W, dec.actions);
-          hist.push({ actions: dec.actions, results: r.results });
-          W = r.W; rep = verify(W, withLore ? activeLore() : null);
+          const r = applyActions(W, dec.actions), rep2 = verify(r.W, lore()), s2 = layeredScore(r.W, rep2);
           if (dec.analysis) ni.body = dec.analysis;
-          ni.after = rep.fails.length;
-          ni.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
-          pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
-          await frame();
-          if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+          ni.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok, msg: x.msg }));
+          if (compareScore(s2, score) > 0) {
+            // trades only weaken goals, so this is rare; still, nothing gets in that makes the map score worse
+            ni.after = rep.fails.length; ni.body += L(`（让步后评分变差：${scoreText(score)} → ${scoreText(s2)}，未采用）`, ` (the trades would worsen the score: ${scoreText(score)} → ${scoreText(s2)}; not adopted)`);
+            hist.push({ actions: dec.actions, results: r.results, score: [score, s2], kept: false });
+            renderTrace();
+          } else {
+            hist.push({ actions: dec.actions, results: r.results, score: [score, s2], kept: true });
+            ni.body += L(`（评分 ${scoreText(score)} → ${scoreText(s2)}）`, ` (score ${scoreText(score)} → ${scoreText(s2)})`);
+            W = r.W; rep = rep2; score = s2; keepBest();
+            ni.after = rep.fails.length;
+            pushSnap(W, L(`${title}${it}让步`, `${title} ${it} yield`), "iter");
+            await frame();
+            if (!rep.fails.length) { addTrace({ kind: "done", title: L("全部检查通过", "All checks pass"), body: L("让步之后没有剩余违规，循环结束。", "Nothing left after the trades; the loop ends.") }); break; }
+          }
         } else { ni.after = rep.fails.length; ni.body += L("（agent 选择不让步）", " (the agent chose not to yield)"); renderTrace(); }
       }
     }
@@ -1039,28 +1101,47 @@ async function repairLoop(W, { fb, maxIter, withLore, eng, title, desc }) {
     }
     item.body = pol.analysis;
     if (!pol.actions.length || pol.stop) { item.after = rep.fails.length; item.body += (item.body ? " " : "") + L("（agent 没有给出新动作，循环结束）", "(no new actions from the agent; the loop ends)"); renderTrace(); break; }
-    const r = applyActions(W, pol.actions);
-    // character outranks site constraints: a round that breaks a passing character check is undone
-    const rep2 = verify(r.W, withLore ? activeLore() : null);
-    const broken = rep.checks.filter(c => c.code === "character" && c.status === "pass").filter(c => rep2.fails.some(f => f.id === c.id));
-    if (broken.length) {
-      const why = L(`本轮会破坏整体特征（${broken.map(c => c.label.replace("整体特征：", "")).join("、")}），已回滚`, `this round would break the world's character (${broken.map(c => c.label.replace("Character: ", "")).join(", ")}), rolled back`);
-      r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: why });
-      hist.push({ actions: pol.actions, results: r.results });
-      item.after = rep.fails.length; item.body += (item.body ? " " : "") + `（${why}）`;
-      item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
-      renderTrace(); await frame();
-      if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
-      continue;
+    let r = applyActions(W, pol.actions), rep2 = verify(r.W, lore()), s2 = layeredScore(r.W, rep2), note = "";
+    // a round that makes an earlier layer worse is undone, or under soft acceptance kept with a probability that
+    // shrinks the more it costs; character, then nature, then details
+    const sa = compareScore(s2, score) > 0 && soft ? softAccept(s2, score, it, W.P.seed) : null;
+    if (sa && sa.ok) note = L(`（评分变差 ${scoreText(score)} → ${scoreText(s2)}，代价 ${sa.cost}、温度 ${sa.temp}，以 ${Math.round(sa.p * 100)}% 的概率接受）`, `(score worsens ${scoreText(score)} → ${scoreText(s2)}, cost ${sa.cost} at temperature ${sa.temp}; accepted with probability ${Math.round(sa.p * 100)}%)`);
+    else if (compareScore(s2, score) > 0) {
+      const why = sa ? L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}，接受概率 ${Math.round(sa.p * 100)}%，未抽中）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)}; acceptance chance ${Math.round(sa.p * 100)}%, not drawn)`)
+        : L(`本轮会让评分变差（${scoreText(score)} → ${scoreText(s2)}）`, `this round would worsen the score (${scoreText(score)} → ${scoreText(s2)})`);
+      // the round's settlement moves and declarations may still help on their own, without its terrain edits
+      const keep = pol.actions.filter(a => a && (a.tool === "move_settlement" || a.tool === "declare_unsatisfiable"));
+      let partial = null;
+      if (keep.length && keep.length < pol.actions.length) {
+        const rp = applyActions(W, keep), repP = verify(rp.W, lore()), sP = layeredScore(rp.W, repP);
+        if (compareScore(sP, score) <= 0 && rankScore(sP, score) < 0) partial = { r: rp, rep: repP, s: sP };
+      }
+      if (!partial) {
+        r.results.push({ a: { tool: "rollback", args: {} }, ok: false, msg: L(`${why}，已回滚`, `${why}; rolled back`) });
+        hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: false });
+        item.after = rep.fails.length; item.body += (item.body ? " " : "") + L(`（${why}，已回滚）`, `(${why}; rolled back)`);
+        item.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok && !x.outside, msg: x.msg }));
+        renderTrace(); await frame();
+        if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
+        continue;
+      }
+      r.results.push({ a: { tool: "rollback", args: { keep: "settlements" } }, ok: false, msg: L(`${why}；撤销地形和气候改动，只保留聚落移动和声明`, `${why}; terrain and climate edits undone, settlement moves and declarations kept`) });
+      note = L(`（${why}；只保留了聚落移动和声明：${scoreText(partial.s)}）`, `(${why}; kept only the settlement moves and declarations: ${scoreText(partial.s)})`);
+      r = { ...partial.r, results: r.results.concat(partial.r.results) }; rep2 = partial.rep; s2 = partial.s;
     }
-    hist.push({ actions: pol.actions, results: r.results });
-    W = r.W;
-    rep = rep2;
+    hist.push({ actions: pol.actions, results: r.results, score: [score, s2], kept: true, ...(sa && sa.ok ? { kept_though_worse: true } : {}) });
+    W = r.W; rep = rep2; score = s2; keepBest();
     item.after = rep.fails.length;
-    item.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok && !x.outside, msg: x.msg }));
+    item.body += (item.body ? " " : "") + (note || L(`（评分 ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)}）`, `(score ${scoreText(hist.at(-1).score[0])} → ${scoreText(s2)})`));
+    item.actions = r.results.map(x => ({ call: callOf(x), ok: x.ok && !x.outside, msg: x.msg }));
     pushSnap(W, L(`${title}${it}`, `${title} ${it}`), "iter");
     await frame();
     if (it === maxIter && rep.fails.length) addTrace({ kind: "done", title: L("达到迭代上限", "Iteration limit reached"), body: L(`仍有 ${rep.fails.length} 项违规。`, `${rep.fails.length} violations remain.`) });
+  }
+  // small ties can drift; if an earlier version scored better, it is the one the run ends on
+  if (best.W !== W) {
+    addTrace({ kind: "done", title: L("采用最好的一版", "Best version kept"), body: L(`循环中评分最好的一版（${scoreText(best.score)}）好于最后一版（${scoreText(score)}），最终结果改用它。`, `The best-scoring version from the loop (${scoreText(best.score)}) beats the last one (${scoreText(score)}); the run ends on it.`) });
+    W = best.W; pushSnap(W, L("最好一版", "Best"), "iter");
   }
   return W;
 }
@@ -1138,12 +1219,17 @@ async function runAgent(opts = {}) {
             $("#specView").textContent = JSON.stringify(S.spec, null, 2);
           }
         }
+        let adopted = false;
         if (cr.actions.length) {
-          const r = applyActions(W, cr.actions); W = r.W;
+          // the review's edits face the same test as a repair round: kept only if the layered score does not get worse
+          const r = applyActions(W, cr.actions), s0 = layeredScore(W, verify(W, null)), s1 = layeredScore(r.W, verify(r.W, null));
           ci.actions = r.results.map(x => ({ call: `${x.a.tool}(${Object.values(x.a.args || {}).map(v => JSON.stringify(v)).join(", ")})`, ok: x.ok, msg: x.msg }));
+          if (compareScore(s1, s0) > 0) {
+            ci.actions.push({ call: "rollback()", ok: false, msg: L(`审阅的改动会让评分变差（${scoreText(s0)} → ${scoreText(s1)}），未采用`, `the review's edits would worsen the score (${scoreText(s0)} → ${scoreText(s1)}); not adopted`) });
+          } else { W = r.W; adopted = true; notes.push(L(`评分 ${scoreText(s0)} → ${scoreText(s1)}`, `score ${scoreText(s0)} → ${scoreText(s1)}`)); }
         }
         ci.body = notes.join(L("；", "; ")) + L("。", ".");
-        if (cr.add.length || cr.actions.length) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
+        if (cr.add.length || adopted) { ci.after = verify(W, null).fails.length; pushSnap(W, L("审阅调整", "Review"), "iter"); }
         renderTrace();
       } catch (e) { ci.body = L("审阅失败：", "Review failed: ") + (e.message || e); }
     }
@@ -1332,6 +1418,18 @@ function editMove() {
   const r = applyActions(sn.W, [{ tool: "move_settlement", args: { id, targets: ["region:" + reg] } }]);
   afterEdit(sn.W, r, L("编辑", "Edit"), L(`把${nameOf(sn.W, id)}移到${REGION_ZH[reg]}部`, `Moved ${nameOf(sn.W, id)} to ${RG(reg)}`));
 }
+// Undo without losing anything: the version being viewed is copied to the end of the timeline as the latest, so the
+// steps after it stay visible and a restore can itself be undone by restoring the one before it.
+function restoreSnap() {
+  const sn = curSnap(); if (!sn || S.running || S.cur === S.snaps.length - 1) return;
+  S.spec = sn.W.spec; $("#specView").textContent = JSON.stringify(S.spec, null, 2);
+  pushSnap(sn.W, L(`恢复：${sn.label}`, `Restored: ${sn.label}`), "edit");
+  claimStatuses(sn.W); bumpLore();
+  const n = reportOf(last()).fails.length;
+  $("#editResult").textContent = L(`已恢复到「${sn.label}」，当前违规 ${n} 项。`, `Restored "${sn.label}"; ${n} violations now.`);
+  addTrace({ kind: "edit", title: L("撤销", "Undo"), body: L(`把地图恢复到「${sn.label}」那一版（${n} 项违规）。之后的编辑都基于这一版，原来的各版仍留在时间线上。`, `Restored the map to "${sn.label}" (${n} violations). Later edits build on it; every other version stays in the timeline.`) });
+  fillEditSelects(); refreshAll(); saveRecord();
+}
 function editRidge() {
   const sn = last(); if (!sn || S.running) return;
   const reg = $("#ridgeR").value;
@@ -1342,8 +1440,8 @@ function editRidge() {
 // ---------- rendering: side panels ----------
 function renderScrub() {
   const el = $("#scrub");
-  el.innerHTML = S.snaps.map((s, k) => `<button type="button" data-k="${k}" aria-pressed="${k === S.cur}" class="snap ${s.kind}"><span>${esc(s.label)}</span><b>${reportOf(s).fails.length}</b></button>`).join("");
-  el.querySelectorAll("button").forEach(b => b.onclick = () => { S.cur = +b.dataset.k; S.focus = null; renderScrub(); renderMap(); renderChecks(); renderCity(); });
+  el.innerHTML = S.snaps.map((s, k) => `<button type="button" data-k="${k}" aria-pressed="${k === S.cur}" class="snap ${s.kind}" title="${esc(scoreText(scoreOf(s)))}"><span>${esc(s.label)}</span><b>${reportOf(s).fails.length}</b></button>`).join("");
+  el.querySelectorAll("button").forEach(b => b.onclick = () => { S.cur = +b.dataset.k; S.focus = null; renderScrub(); renderMap(); renderChecks(); renderCity(); renderMetrics(); });
   $("#histNote").hidden = S.cur === S.snaps.length - 1 || !S.snaps.length;
 }
 function renderMetrics() {
@@ -1355,6 +1453,7 @@ function renderMetrics() {
   const declared = rep.checks.filter(c => c.status === "declared").length;
   el.innerHTML = `
     <div><dt>${L("违规数变化", "Violations")}</dt><dd>${traj.join(" → ")}</dd></div>
+    <div><dt>${L("分层评分（越低越好）", "Layered score (lower is better)")}</dt><dd>${scoreText(scoreOf(curSnap() || last()))}</dd></div>
     <div><dt>${L("检查通过率", "Checks passed")}</dt><dd>${(rep.rate * 100).toFixed(0)}%</dd></div>
     <div><dt>${L("声明无法满足", "Declared unsatisfiable")}</dt><dd>${declared}</dd></div>
     <div><dt>${L("Claude 调用", "Claude calls")}</dt><dd>${S.llmCalls}${L(" 次", "")}</dd></div>
