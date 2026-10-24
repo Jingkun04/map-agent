@@ -1,12 +1,12 @@
-// Local dev server: serves the built page and proxies the LLM stages to OpenRouter.
+// Local dev server: serves the built page and proxies the LLM stages to DeepSeek or OpenRouter.
 // The API key stays in .env on this machine; the page only ever talks to /api/llm.
 //
-//   python3 build.py && node server.js     then open http://localhost:8787
+//   node run-python.js build.py && node server.js     then open http://localhost:8787
 //
 // .env (git-ignored):
-//   OPENROUTER_API_KEY=sk-or-v1-...
-//   OPENROUTER_MODEL_DEFAULT=anthropic/claude-sonnet-5.5   (optional)
-//   OPENROUTER_MODEL_QUICK=anthropic/claude-haiku-5.5      (optional)
+//   DEEPSEEK_API_KEY=sk-...                              (preferred for low-cost local runs)
+//   LLM_PROVIDER=deepseek                                (optional if only the DeepSeek key is set)
+//   OPENROUTER_API_KEY=sk-or-v1-...                       (alternative)
 //   PORT=8787                                              (optional)
 //   HISTORY_MAX=30                                         (optional: records kept in history/)
 //
@@ -21,17 +21,30 @@ for (const line of (fs.existsSync(path.join(ROOT, ".env")) ? fs.readFileSync(pat
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
   if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
-const KEY = process.env.OPENROUTER_API_KEY;
+const PROVIDER = (process.env.LLM_PROVIDER || (process.env.DEEPSEEK_API_KEY ? "deepseek" : "openrouter")).toLowerCase();
+if (!(["deepseek", "openrouter"].includes(PROVIDER))) {
+  console.error("LLM_PROVIDER must be deepseek or openrouter"); process.exit(1);
+}
+const KEY = PROVIDER === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENROUTER_API_KEY;
 const PORT = +process.env.PORT || 8787;
-const MODELS = {
-  default: process.env.OPENROUTER_MODEL_DEFAULT || "anthropic/claude-sonnet-5.5",
-  quick: process.env.OPENROUTER_MODEL_QUICK || "anthropic/claude-haiku-5.5",
-};
+const MODELS = PROVIDER === "deepseek"
+  ? { default: process.env.DEEPSEEK_MODEL_DEFAULT || "deepseek-flash", quick: process.env.DEEPSEEK_MODEL_QUICK || "deepseek-flash" }
+  : { default: process.env.OPENROUTER_MODEL_DEFAULT || "anthropic/claude-sonnet-5.5", quick: process.env.OPENROUTER_MODEL_QUICK || "anthropic/claude-haiku-5.5" };
 const PAGE = path.join(ROOT, "dist", "region-map-agent.html");
 const HIST_DIR = path.join(ROOT, "history");
 const HIST_MAX = Math.max(1, +process.env.HISTORY_MAX || 30);
 
-if (!KEY) { console.error("OPENROUTER_API_KEY is not set (put it in .env)"); process.exit(1); }
+if (!KEY) { console.error(`${PROVIDER === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENROUTER_API_KEY"} is not set (put it in .env)`); process.exit(1); }
+
+// Published DeepSeek Flash prices as of 2026-10-23. Log a range because peak hours and holidays can change the rate.
+function deepseekCostRange(usage, model) {
+  const pro = model === "deepseek-v4-pro";
+  const hit = usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
+  const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
+  const out = usage.completion_tokens || 0;
+  const offpeak = (hit * (pro ? 0.022 : 0.003) + miss * (pro ? 0.66 : 0.15) + out * (pro ? 1.98 : 0.6)) / 1e6;
+  return { offpeak, peak: offpeak * 2 };
+}
 
 function send(res, status, body, type = "application/json") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
@@ -93,13 +106,15 @@ async function proxyLLM(req, res) {
   res.on("close", () => ctl.abort());          // the page pressed Stop or went away: stop paying for tokens
   let up;
   try {
-    up = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    up = await fetch(PROVIDER === "deepseek" ? "https://api.deepseek.com/chat/completions" : "https://openrouter.ai/api/v1/chat/completions", {
       method: "POST", signal: ctl.signal,
-      headers: {
-        Authorization: `Bearer ${KEY}`, "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/xenonlyn/region-map-agent", "X-Title": "region-map-agent (DSA4213 group 12)",
-      },
-      body: JSON.stringify({ model, stream: true, max_tokens: 8000, messages: [{ role: "user", content: body.prompt }] }),
+      headers: PROVIDER === "deepseek"
+        ? { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }
+        : { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/xenonlyn/region-map-agent", "X-Title": "region-map-agent (DSA4213 group 12)" },
+      body: JSON.stringify({ model, stream: true, stream_options: { include_usage: true }, max_tokens: 8000,
+        ...(PROVIDER === "deepseek" ? { thinking: { type: process.env.DEEPSEEK_THINKING === "enabled" ? "enabled" : "disabled" } } : {}),
+        messages: [{ role: "user", content: body.prompt }] }),
     });
   } catch (e) {
     if (ctl.signal.aborted) return;
@@ -123,8 +138,15 @@ async function proxyLLM(req, res) {
   for (const line of tail.split("\n")) {
     if (line.startsWith("data:") && line.includes('"usage"')) try { usage = JSON.parse(line.slice(5)).usage || usage; } catch {}
   }
+  const cost = usage && PROVIDER === "deepseek" ? deepseekCostRange(usage, model) : null;
   console.log(`[llm] ${model} ${((Date.now() - t0) / 1000).toFixed(1)}s`
-    + (usage ? ` in=${usage.prompt_tokens} out=${usage.completion_tokens}${usage.cost != null ? ` $${(+usage.cost).toFixed(5)}` : ""}` : ""));
+    + (usage ? ` in=${usage.prompt_tokens} out=${usage.completion_tokens}${cost ? ` estimated_usd=$${cost.offpeak.toFixed(5)}-$${cost.peak.toFixed(5)}` : usage.cost != null ? ` $${(+usage.cost).toFixed(5)}` : ""}` : ""));
+  if (usage) {
+    fs.mkdirSync(HIST_DIR, { recursive: true });
+    fs.appendFileSync(path.join(HIST_DIR, "api-usage.jsonl"), JSON.stringify({ at: new Date().toISOString(), provider: PROVIDER, model,
+      thinking: PROVIDER === "deepseek" ? process.env.DEEPSEEK_THINKING === "enabled" : null,
+      usage, estimated_usd: cost }) + "\n");
+  }
 }
 
 http.createServer(async (req, res) => {
@@ -133,7 +155,7 @@ http.createServer(async (req, res) => {
     if (!fs.existsSync(PAGE)) return send(res, 500, "dist/region-map-agent.html is missing: run python3 build.py first", "text/plain");
     return send(res, 200, fs.readFileSync(PAGE), "text/html; charset=utf-8");
   }
-  if (req.method === "GET" && url.pathname === "/api/llm/health") return send(res, 200, { ok: true, provider: "openrouter", models: MODELS });
+  if (req.method === "GET" && url.pathname === "/api/llm/health") return send(res, 200, { ok: true, provider: PROVIDER, models: MODELS });
   const hm = url.pathname.match(/^\/api\/history(?:\/([^/]+))?$/);
   if (hm) return history(req, res, hm[1]).catch(e => { console.error("[history]", e.message); if (!res.headersSent) send(res, e.status || 500, { error: e.message }); });
   if (req.method === "POST" && url.pathname === "/api/llm") {

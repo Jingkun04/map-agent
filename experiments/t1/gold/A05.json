@@ -1,0 +1,72 @@
+{
+  "id": "A05",
+  "sea": {
+    "id": "sea",
+    "value": "W",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "日照山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "落日港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "松谷镇",
+      "type": "town",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "日照山",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "落日港",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "river_mouth",
+      "subject": "落日港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "松谷镇",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "on_river",
+      "subject": "松谷镇",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

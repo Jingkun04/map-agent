@@ -1,0 +1,49 @@
+{
+  "id": "A22",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "双向城",
+      "type": "city",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "双向城",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "min_major_rivers",
+      "value": 1,
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "in_region",
+      "subject": "双向城",
+      "region": "S",
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [
+    {
+      "ids": [
+        "c1",
+        "c3"
+      ],
+      "reason": "同一个地点必须同时位于不同九宫区域"
+    }
+  ],
+  "uncheckable": []
+}

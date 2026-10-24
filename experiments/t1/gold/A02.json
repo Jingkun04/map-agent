@@ -1,0 +1,73 @@
+{
+  "id": "A02",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "赤石岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "沙泉城",
+      "type": "city",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "赤石堡",
+      "type": "fortress",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "赤石岭",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "沙泉城",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "in_region",
+      "subject": "赤石堡",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "near_mountain",
+      "subject": "赤石堡",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "min_major_rivers",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "desert_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

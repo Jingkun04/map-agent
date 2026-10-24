@@ -190,7 +190,11 @@ const INJECTIONS = [
   { name: "naive_hydro", expect: "river_sink", apply: P => { P.hydro = "naive"; } },
   { name: "noise_climate", expect: "rain_shadow", apply: P => { P.climate = "noise"; } },
   { name: "flatten_range", expect: "mountain_weak", apply: P => { P.ridges.forEach(r => r.amp = 0.02); } },
-  { name: "raise_river_threshold", expect: "few_rivers", apply: P => { P.riverThr = Math.round(P.riverThr * 6); } },
+  { name: "raise_river_threshold", expect: "few_rivers", apply: (P, W) => {
+      if (W.spec.min_major_rivers === 0 || W.hy.rivers.length < W.spec.min_major_rivers) return false;
+      P.unsat = (P.unsat || []).filter(id => id !== "spec.rivers"); // test the check, not an earlier waiver
+      P.riverThr = Math.max(P.riverThr + 1, Math.round(P.riverThr * 6));
+    } },
   { name: "drown_settlement", expect: "underwater", apply: (P, W) => {
       const s = W.spec.settlements[0]; if (!s) return false;
       for (let i = 0; i < NN; i++) if (W.ocean[i]) { P.pos[s.id] = cellXY(i); return true; }
@@ -209,6 +213,17 @@ const INJECTIONS = [
       return false;
     } },
 ];
+function ensureRiverShortage(W, P, injected) {
+  // A sixfold threshold may leave enough major rivers. If so, exceed the maximum
+  // accumulation to guarantee a real shortage with only one more rebuild.
+  if (injected.hy.rivers.length >= W.spec.min_major_rivers) {
+    let maxAcc = 0;
+    for (const acc of injected.hy.acc) if (acc > maxAcc) maxAcc = acc;
+    P.riverThr = Math.max(P.riverThr + 1, Math.ceil(maxAcc) + 1);
+    injected = derive(W.spec, P);
+  }
+  return injected;
+}
 function injectionTest(trials, opts = {}) {
   const rows = [];
   let skipped = 0;
@@ -227,11 +242,22 @@ function injectionTest(trials, opts = {}) {
       const P = JSON.parse(JSON.stringify(W.P));
       const ok = inj.apply(P, W);
       if (ok === false) continue;
-      const W2 = derive(t.spec, P), rep2 = verify(W2, null);
+      let W2 = derive(t.spec, P);
+      const riverInjection = inj.name === "raise_river_threshold";
+      if (riverInjection) W2 = ensureRiverShortage(W, P, W2);
+      const faultCreated = riverInjection ? W2.hy.rivers.length < W.spec.min_major_rivers : null;
+      const rep2 = verify(W2, null);
+      const shadowChecks = inj.name === "noise_climate" ? rep2.checks.filter(c => c.code === "rain_shadow").length : null;
       const codes = new Set(rep2.fails.map(f => f.code));
       const detected = codes.has(inj.expect) && !baseCodes.has(inj.expect);
       const extra = [...codes].filter(c => !baseCodes.has(c) && c !== inj.expect);
       rows.push({ trial: t.id, injection: inj.name, expect: inj.expect, detected: detected ? 1 : 0,
+        fault_created: faultCreated == null ? "" : (faultCreated ? 1 : 0),
+        major_rivers_before: riverInjection ? W.hy.rivers.length : "",
+        major_rivers_after: riverInjection ? W2.hy.rivers.length : "",
+        major_rivers_required: riverInjection ? W.spec.min_major_rivers : "",
+        river_threshold_after: riverInjection ? P.riverThr : "",
+        applicable_shadow_checks: shadowChecks == null ? "" : shadowChecks,
         base_clean: baseCodes.size === 0 ? 1 : 0, extra_codes: extra.join("|") });
     }
   }

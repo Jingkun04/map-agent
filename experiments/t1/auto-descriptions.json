@@ -1,0 +1,242 @@
+[
+  {
+    "id": "A01",
+    "split": "dev",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "东临大海；西部有山脉「青脊山」；东部河口有港口「青湾港」；至少有1条大河。"
+  },
+  {
+    "id": "A02",
+    "split": "dev",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；北部有山脉「赤石岭」；中部有城市「沙泉城」；北部山脚有要塞「赤石堡」；至少有1条大河；大片陆地是沙漠。"
+  },
+  {
+    "id": "A03",
+    "split": "dev",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；北部有山脉「云山」；中部有城镇「柳城」；大片陆地为草地。"
+  },
+  {
+    "id": "A04",
+    "split": "dev",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "四面环海；东部海岸有港口「环礁港」；西部海岸有村庄「潮汐村」；至少有1个湖泊。"
+  },
+  {
+    "id": "A05",
+    "split": "dev",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "西临大海；东部有山脉「日照山」；西部河口有港口「落日港」；中部河畔有城镇「松谷镇」；至少有2条大河。"
+  },
+  {
+    "id": "A06",
+    "split": "dev",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；西北部有山脉「霜角岭」；中部湖畔有城市「镜湖城」；西北部山脚有要塞「白石寨」；还有湖泊「镜湖」；至少有2个湖泊。"
+  },
+  {
+    "id": "A07",
+    "split": "dev",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "南临大海；北部有山脉「北墙山」；南部海岸有港口「南风港」；北部山脚有要塞「北墙堡」；至少有1条大河。"
+  },
+  {
+    "id": "A08",
+    "split": "dev",
+    "tier": "unsat",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；东部海岸有港口「无海港」；至少有1条大河。"
+  },
+  {
+    "id": "A09",
+    "split": "dev",
+    "tier": "unsat",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；东部有城镇「两界镇」；但「两界镇」还必须同时位于西部，两个位置要求都不能放弃。"
+  },
+  {
+    "id": "A10",
+    "split": "dev",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "北临大海；中部有山脉「霜峰」；北部海岸有港口「北冰港」；大片陆地是苔原或冰原。"
+  },
+  {
+    "id": "A11",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "东临大海；西部有山脉「鸦脊山」；东部海岸有港口「灰锚港」；至少有1条大河。"
+  },
+  {
+    "id": "A12",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；南部有山脉「铜岭」；南部山脚有要塞「铜岭堡」；中部河畔有城镇「麦浪镇」；至少有2条大河。"
+  },
+  {
+    "id": "A13",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "四面环海；北部有山脉「雾岬岭」；东部河口有港口「灯塔港」；西部海岸有村庄「西礁村」；至少有1条大河。"
+  },
+  {
+    "id": "A14",
+    "split": "test",
+    "tier": "unsat",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；南部河口有港口「旱海港」；大片陆地是沙漠。"
+  },
+  {
+    "id": "A15",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；北部河畔有城镇「黑松镇」；至少有1条大河；大片陆地覆盖森林。"
+  },
+  {
+    "id": "A16",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "西临大海；东部有山脉「白塔山」；西部河口有港口「潮湾港」；东部山脚有城市「白塔城」；至少有2条大河。"
+  },
+  {
+    "id": "A17",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；西南部有山脉「青崖」；中部湖畔有村庄「鹭湖村」；西南部山脚有要塞「青崖堡」；至少有2个湖泊。"
+  },
+  {
+    "id": "A18",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "南临大海；南部海岸有港口「金沙港」；大片陆地是沙漠。"
+  },
+  {
+    "id": "A19",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "东临大海；西北部有山脉「苍梧岭」；东部河畔有城市「河口城」；西北部山脚有要塞「苍梧寨」；至少有2条大河；大片陆地覆盖森林。"
+  },
+  {
+    "id": "A20",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；东北部有山脉「雪脊山」；东北部山脚有城镇「雪脊镇」；大片陆地是苔原或冰原。"
+  },
+  {
+    "id": "A21",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "北临大海；北部河口有港口「北湾港」；中部湖畔有村庄「苇滩村」；至少有1条大河；至少有1个湖泊。"
+  },
+  {
+    "id": "A22",
+    "split": "test",
+    "tier": "unsat",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；北部有城市「双向城」；至少有1条大河；但「双向城」还必须同时位于南部，两个位置要求都不能放弃。"
+  },
+  {
+    "id": "A23",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "西临大海；东南部有山脉「石门岭」；东南部山脚有要塞「石门堡」；西部海岸有港口「芦苇港」；至少有1个湖泊。"
+  },
+  {
+    "id": "A24",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；中部河畔有城镇「赤沙镇」；至少有1条大河；大部分陆地是沙漠。"
+  },
+  {
+    "id": "A25",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "东临大海；北部有山脉「雷鸣山」；北部山脚有要塞「雷鸣堡」；东部河口有港口「河灯港」；至少有2条大河。"
+  },
+  {
+    "id": "A26",
+    "split": "test",
+    "tier": "simple",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "四面环海；南部海岸有港口「海星港」；还有湖泊「碧眼湖」；至少有1个湖泊。"
+  },
+  {
+    "id": "A27",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；西部有山脉「断崖山」；西部山脚有要塞「断崖堡」；东部河畔有城市「平泽城」；至少有1条大河；大片陆地为草地。"
+  },
+  {
+    "id": "A28",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "南临大海；北部有山脉「黄土岭」；北部山脚有城镇「黄土镇」；南部海岸有港口「盐风港」；大片陆地是沙漠。"
+  },
+  {
+    "id": "A29",
+    "split": "test",
+    "tier": "unsat",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "全图没有海；西部海岸有港口「荒原港」；至少有1个湖泊。"
+  },
+  {
+    "id": "A30",
+    "split": "test",
+    "tier": "multi",
+    "lang": "zh",
+    "author": "programmatic",
+    "text": "东临大海；西南部有山脉「松涛山」；西南部山脚有城镇「松涛镇」；东部河口有港口「碧潮港」；中部湖畔有村庄「镜水村」；至少有2条大河；至少有1个湖泊。"
+  }
+]

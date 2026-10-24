@@ -1,0 +1,41 @@
+{
+  "id": "A18",
+  "sea": {
+    "id": "sea",
+    "value": "S",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "金沙港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "金沙港",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "coast",
+      "subject": "金沙港",
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "desert_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

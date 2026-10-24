@@ -4,10 +4,10 @@
   "private": true,
   "description": "Regional map generation agent with a constraint verifier and self-repair loop (DSA4213 project demo)",
   "scripts": {
-    "build": "python3 build.py",
-    "test": "node tests/test_core.js && node tests/test_city.js",
-    "screenshots": "python3 tests/screenshots.py 0",
-    "serve": "python3 build.py && node server.js"
+    "build": "node run-python.js build.py",
+    "test": "node tests/test_rain_shadow.js && node tests/test_subsea_land.js && node tests/test_core.js && node tests/test_city.js && node tests/test_t1.js && node tests/test_human_pack.js && node tests/test_satisfaction_pack.js",
+    "screenshots": "node run-python.js tests/screenshots.py",
+    "serve": "node run-python.js build.py && node server.js"
   },
   "devDependencies": {
     "three": "0.128.0"

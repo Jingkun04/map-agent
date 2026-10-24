@@ -1,0 +1,79 @@
+{
+  "id": "A19",
+  "sea": {
+    "id": "sea",
+    "value": "E",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "苍梧岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "河口城",
+      "type": "city",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "苍梧寨",
+      "type": "fortress",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "苍梧岭",
+      "region": "NW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "河口城",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "on_river",
+      "subject": "河口城",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "苍梧寨",
+      "region": "NW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "near_mountain",
+      "subject": "苍梧寨",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "forest_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

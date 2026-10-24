@@ -1,0 +1,73 @@
+{
+  "id": "A28",
+  "sea": {
+    "id": "sea",
+    "value": "S",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "黄土岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "黄土镇",
+      "type": "town",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "盐风港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "黄土岭",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "黄土镇",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "near_mountain",
+      "subject": "黄土镇",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "盐风港",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "coast",
+      "subject": "盐风港",
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "desert_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

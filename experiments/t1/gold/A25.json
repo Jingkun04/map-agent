@@ -1,0 +1,72 @@
+{
+  "id": "A25",
+  "sea": {
+    "id": "sea",
+    "value": "E",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "雷鸣山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "雷鸣堡",
+      "type": "fortress",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "河灯港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "雷鸣山",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "雷鸣堡",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "near_mountain",
+      "subject": "雷鸣堡",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "河灯港",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "river_mouth",
+      "subject": "河灯港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

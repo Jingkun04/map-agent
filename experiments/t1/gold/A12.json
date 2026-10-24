@@ -1,0 +1,72 @@
+{
+  "id": "A12",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "铜岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "铜岭堡",
+      "type": "fortress",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "麦浪镇",
+      "type": "town",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "铜岭",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "铜岭堡",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "near_mountain",
+      "subject": "铜岭堡",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "麦浪镇",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "on_river",
+      "subject": "麦浪镇",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

@@ -6,3 +6,7 @@ __pycache__/
 .env.*
 !.env.example
 history/
+experiments/t1/runs/
+experiments/t1/pilot-runs*/
+experiments/t1/g1-physical-replay/
+experiments/t1/auto-runs/

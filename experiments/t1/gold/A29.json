@@ -1,0 +1,48 @@
+{
+  "id": "A29",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "荒原港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "荒原港",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "coast",
+      "subject": "荒原港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [
+    {
+      "ids": [
+        "sea",
+        "c2"
+      ],
+      "reason": "无海区域要求海港"
+    }
+  ],
+  "uncheckable": []
+}

@@ -1,0 +1,48 @@
+{
+  "id": "A03",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "云山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "柳城",
+      "type": "town",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "云山",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "柳城",
+      "region": "C",
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "grass_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

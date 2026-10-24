@@ -1,0 +1,72 @@
+{
+  "id": "A23",
+  "sea": {
+    "id": "sea",
+    "value": "W",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "石门岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "石门堡",
+      "type": "fortress",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "芦苇港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "石门岭",
+      "region": "SE",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "石门堡",
+      "region": "SE",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "near_mountain",
+      "subject": "石门堡",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "芦苇港",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "coast",
+      "subject": "芦苇港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

@@ -1,0 +1,53 @@
+{
+  "id": "A01",
+  "sea": {
+    "id": "sea",
+    "value": "E",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "青脊山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "青湾港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "青脊山",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "青湾港",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "river_mouth",
+      "subject": "青湾港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "min_major_rivers",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

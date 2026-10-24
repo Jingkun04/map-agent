@@ -1,0 +1,46 @@
+{
+  "id": "A26",
+  "sea": {
+    "id": "sea",
+    "value": "all",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "海星港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "碧眼湖",
+      "type": "lake",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "海星港",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "coast",
+      "subject": "海星港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

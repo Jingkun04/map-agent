@@ -207,6 +207,9 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 .ck.pass .ck-n { background: transparent; border: 1.5px solid var(--ok); }
 .ck.declared .ck-n { background: var(--muted); }
 .ck.relaxed .ck-n { background: transparent; border: 1.5px dashed var(--lore); }
+.ck.advisory { cursor: default; }
+.ck.advisory .ck-n { background: var(--muted); }
+.ck-diagnostics { margin-top: 8px; }
 .ck-cat { font-size: 11.5px; color: var(--muted); padding-top: 2px; }
 .ck-body { display: grid; }
 .ck-meas { color: var(--muted); font-size: 12px; }
@@ -248,7 +251,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
 <header class="top">
   <h1>区域地图 Agent</h1>
   <p class="lede">把一段世界观描述变成地形、水系和聚落，由验证器找出物理规律与设定上的矛盾，再让 agent 调用生成工具逐轮修正。写好的世界观会被逐条对照地图核查。</p>
-  <p id="agentStatus">正在检测 Claude 是否可用</p>
+  <p id="agentStatus">正在检测模型是否可用</p>
   <button type="button" id="langBtn" title="切换界面语言 / Switch language">EN</button>
 </header>
 <main class="grid">
@@ -268,7 +271,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
     <fieldset>
       <legend>规划与修正由谁完成</legend>
       <label class="radio"><input type="radio" name="engine" value="offline" id="engOff" checked><span>离线脚本策略<small>即时运行，按违规类型套规则，用来模拟 agent</small></span></label>
-      <label class="radio"><input type="radio" name="engine" value="claude" id="engClaude" disabled><span>Claude<small>规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒</small></span></label>
+      <label class="radio"><input type="radio" name="engine" value="claude" id="engClaude" disabled><span>模型（LLM）<small>规划器、地缘关系提议、冲突让步决策、修正器与设定作者都是真实模型调用，每轮约 10–60 秒；本地重建地图每轮约 1 秒</small></span></label>
       <div id="keyWrap" hidden>
         <label class="f" for="orKey">OpenRouter API key（只存在这个浏览器里）</label>
         <div class="keyrow"><input type="password" id="orKey" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…"><button id="orKeyUse">使用</button><button id="orKeyForget" hidden>忘记</button></div>
@@ -368,7 +371,7 @@ pre { font: 12px/1.45 var(--mono); background: var(--paper); border: 1px solid v
       <div class="btns" style="margin-top:0"><button id="rewriteBtn">重写过期设定</button><button id="obeyBtn">让地图服从设定</button></div>
     </div>
     <p id="editResult" aria-live="polite">先生成地图和世界观，再来这里修改。</p>
-    <p class="note">离线模式下的规划、修正和写作都是规则脚本，只用于展示流程；切换到 Claude 才是真正的 LLM agent。</p>
+    <p class="note">离线模式下的规划、修正和写作都是规则脚本，只用于展示流程；切换到模型（LLM）才是真正的 LLM agent。</p>
   </section>
 
   <section class="panel lore-panel" aria-labelledby="h3s">

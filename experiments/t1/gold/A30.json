@@ -1,0 +1,97 @@
+{
+  "id": "A30",
+  "sea": {
+    "id": "sea",
+    "value": "E",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "松涛山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "松涛镇",
+      "type": "town",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "碧潮港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e4",
+      "name": "镜水村",
+      "type": "village",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "松涛山",
+      "region": "SW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "松涛镇",
+      "region": "SW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "near_mountain",
+      "subject": "松涛镇",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "碧潮港",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "river_mouth",
+      "subject": "碧潮港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "in_region",
+      "subject": "镜水村",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c7",
+      "kind": "lakeside",
+      "subject": "镜水村",
+      "basis": "explicit"
+    },
+    {
+      "id": "c8",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    },
+    {
+      "id": "c9",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

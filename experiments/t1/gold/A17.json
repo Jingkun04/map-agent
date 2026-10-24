@@ -1,0 +1,72 @@
+{
+  "id": "A17",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "青崖",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "鹭湖村",
+      "type": "village",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "青崖堡",
+      "type": "fortress",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "青崖",
+      "region": "SW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "鹭湖村",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "lakeside",
+      "subject": "鹭湖村",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "青崖堡",
+      "region": "SW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "near_mountain",
+      "subject": "青崖堡",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_lakes",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

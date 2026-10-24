@@ -128,6 +128,23 @@ function normalizeSpec(raw) {
   out.style = normalizeStyle(s.style);
   return out;
 }
+// A diagnostic for names explicitly marked in Chinese quotation brackets. Other quoted phrases
+// may not be place names, so a miss is a review hint rather than a failed map constraint.
+function quotedNameCoverage(description, spec) {
+  const key = s => String(s || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  const quoted = new Map();
+  for (const match of String(description || "").matchAll(/「([^「」]+)」/g)) {
+    const name = match[1].trim(), normalized = key(name);
+    if (normalized && !quoted.has(normalized)) quoted.set(normalized, name);
+  }
+  const pool = spec.names || {};
+  const names = [spec.name, ...(spec.mountains || []).map(m => m.name), ...(spec.settlements || []).map(s => s.name),
+    ...(pool.rivers || []), ...(pool.lakes || []), ...(pool.places || [])];
+  const present = new Set(names.map(key));
+  const missing = [...quoted].filter(([normalized]) => !present.has(normalized)).map(([, name]) => name);
+  const total = quoted.size, found = total - missing.length;
+  return { total, found, missing, coverage: total ? found / total : null };
+}
 // Style profile: proposed by the intent layer, ignored by the structure layer, read by the city planner.
 // Each era carries a layout signature, so naming an era is enough to change how a town is drawn. An explicit
 // street_pattern / block_scale / building_height still wins — the era only fills in what the spec left out.
@@ -1123,7 +1140,7 @@ function checkClaim(W, c) {
   return { ok: false, label: L(`无法核查的声明（${c.type}）`, `uncheckable claim (${c.type})`), measured: L("引用了不存在的实体或未知类型", "refers to an unknown entity or claim type") };
 }
 
-// ---------- conflict analysis (which constraints are jointly unsatisfiable) ----------
+// ---------- conflict analysis under the current reachability approximation ----------
 // A requirement is "reachable" if some cell could satisfy it after the terrain tools have done their best:
 // carve_basin can make a lake anywhere on land, raise_ridge can make mountains, a lower river threshold
 // extends the channel network, but nothing can put an ocean where the spec says there is none.
@@ -1212,7 +1229,7 @@ function analyseConflict(W, s) {
 // ---------- relaxation: what a constraint may be traded for ----------
 // A relaxation either drops a constraint or swaps it for a weaker one of the same kind. Nothing here can
 // strengthen a constraint, and applyActions refuses a trade on any item the conflict analysis did not put in a
-// minimal core — so a constraint is only ever given up against a proof that it cannot be kept.
+// minimal core under the current reachability approximation — not a proof over every possible tool sequence.
 const RELAX_TO = {
   river_mouth: ["coast", "on_river"],   // an estuary port falls back to any coast, or to an inland river port
   coast: ["on_river", "lakeside"],      // a sea port becomes a river or lake port
@@ -1253,7 +1270,7 @@ function relaxOptions(W, core, t) {
   }
   return opts.filter(o => o.cells_after_tools > 0);
 }
-// One brief per settlement whose constraints are jointly unsatisfiable. This is the whole input the negotiator
+// One brief per settlement with no candidate site under the current approximation. This is the input the negotiator
 // reasons over: what conflicts, where each item came from, why the intent layer proposed it, and what each way
 // out would cost. Everything here is structured — nothing is left for a policy to parse back out of prose.
 function conflictBriefs(W, rep) {
@@ -1309,22 +1326,58 @@ function scriptedNegotiate(W, briefs) {
 // ---------- verifier ----------
 function rainShadow(W, m) {
   const r = W.P.ridges.find(q => q.mid === m.id); if (!r) return null;
-  const w = W.spec.wind_from, ew = m.orientation === "EW";
-  const applicable = ew ? (w === "N" || w === "S") : (w === "E" || w === "W");
-  if (!applicable) return { applicable: false };
-  const [cx, cy] = regionCenter(m.region);
-  const upSign = (w === "W" || w === "N") ? -1 : 1; // upwind side is towards where wind comes from
-  let ws = 0, wc = 0, ls = 0, lc = 0;
-  for (let along = -N / 5; along <= N / 5; along += 3) for (let off = 22; off <= 80; off += 3) {
-    for (const side of [1, -1]) {
-      const x = Math.round(ew ? cx + along : cx + side * off), y = Math.round(ew ? cy + side * off : cy + along);
-      if (x < 0 || y < 0 || x >= N || y >= N) continue;
-      const i = y * N + x; if (!isDry(W, i)) continue;
-      if (side === upSign) { ws += W.moist[i]; wc++; } else { ls += W.moist[i]; lc++; }
+  const angle = (r.angle != null ? r.angle : r.orientation === "NS" ? 90 : 0) * Math.PI / 180;
+  const tx = Math.cos(angle), ty = Math.sin(angle);
+  const [wx, wy] = ({ W: [1, 0], E: [-1, 0], N: [0, 1], S: [0, -1] })[W.spec.wind_from];
+  // The wind must cross the ridge, rather than run almost parallel to it.
+  if (Math.abs(tx * wy - ty * wx) < 0.5) return { applicable: false };
+  const [cx, cy] = regionCenter(r.region), half = N / 3 * 0.66 * (RIDGE_LEN[r.length] || 1);
+  let ws = 0, ls = 0, pairs = 0;
+  for (let along = -half * 0.7; along <= half * 0.7; along += 6) {
+    const ax = cx + tx * along, ay = cy + ty * along;
+    for (let off = 22; off <= 80; off += 6) {
+      const ux = Math.round(ax - wx * off), uy = Math.round(ay - wy * off);
+      const lx = Math.round(ax + wx * off), ly = Math.round(ay + wy * off);
+      if (ux < 0 || uy < 0 || lx < 0 || ly < 0 || ux >= N || uy >= N || lx >= N || ly >= N) continue;
+      const up = uy * N + ux, lee = ly * N + lx;
+      if (!isDry(W, up) || !isDry(W, lee)) continue;
+      ws += W.moist[up]; ls += W.moist[lee]; pairs++;
     }
   }
-  if (wc < 20 || lc < 20) return { applicable: false };
-  return { applicable: true, windward: ws / wc, leeward: ls / lc, at: [Math.round(ew ? cx : cx - upSign * 50), Math.round(ew ? cy - upSign * 50 : cy)] };
+  if (pairs < 20) return { applicable: false };
+  return { applicable: true, windward: ws / pairs, leeward: ls / pairs,
+    at: [Math.round(cx + wx * 50), Math.round(cy + wy * 50)] };
+}
+// Below-sea cells outside the edge-connected ocean can be legitimate closed basins.
+// Report their extent and land cover without treating them as a physics failure.
+function subseaLandDiagnostics(W) {
+  if (W._subsea) return W._subsea;
+  const seen = new Uint8Array(NN), queue = new Int32Array(NN), components = [];
+  let cells = 0, dry = 0, lake = 0, desert = 0;
+  const candidate = i => !W.ocean[i] && W.h[i] < W.P.sea;
+  for (let i = 0; i < NN; i++) {
+    if (seen[i] || !candidate(i)) continue;
+    let head = 0, tail = 1, sx = 0, sy = 0, partDry = 0, partLake = 0, partDesert = 0;
+    seen[i] = 1; queue[0] = i;
+    while (head < tail) {
+      const c = queue[head++], x = c % N, y = (c - x) / N;
+      sx += x; sy += y;
+      if (W.hy.lake[c]) partLake++;
+      else {
+        partDry++;
+        if (W.biome[c] === "desert" || W.biome[c] === "playa") partDesert++;
+      }
+      for (const nb of [x > 0 ? c - 1 : -1, x < N - 1 ? c + 1 : -1, y > 0 ? c - N : -1, y < N - 1 ? c + N : -1]) {
+        if (nb < 0 || seen[nb] || !candidate(nb)) continue;
+        seen[nb] = 1; queue[tail++] = nb;
+      }
+    }
+    cells += tail; dry += partDry; lake += partLake; desert += partDesert;
+    components.push({ cells: tail, dry: partDry, lake: partLake, desert: partDesert,
+      at: [Math.round(sx / tail), Math.round(sy / tail)] });
+  }
+  components.sort((a, b) => b.cells - a.cells);
+  return W._subsea = { cells, dry, lake, desert, components };
 }
 function verify(W, lore) {
   const { spec, P, hy } = W; const C = [];
@@ -1453,7 +1506,15 @@ function verify(W, lore) {
   }
   const fails = C.filter(c => c.status === "fail");
   const counted = C.filter(c => c.status !== "declared" && c.status !== "relaxed");
-  return { checks: C, fails, rate: counted.length ? counted.filter(c => c.pass).length / counted.length : 1 };
+  const sub = subseaLandDiagnostics(W), largest = sub.components[0];
+  const diagnostics = [{ id: "diag.subsea", code: "subsea_land", cat: L("地形", "terrain"),
+    label: L("低于海平面的非海洋区域", "Below-sea terrain outside the ocean"),
+    measured: sub.cells ? L(`${sub.cells} 格，含 ${sub.dry} 格干地（荒漠/盐滩 ${sub.desert} 格）、${sub.lake} 格湖面；${sub.components.length} 片，最大一片 ${largest.cells} 格，位于${RG(regionOf(...largest.at))}。封闭盆地可能合理。`,
+      `${sub.cells} cells: ${sub.dry} dry (${sub.desert} desert/salt flat), ${sub.lake} lake; ${sub.components.length} patches, largest ${largest.cells} cells in ${RG(regionOf(...largest.at))}. A closed basin may be valid.`)
+      : L("没有低于海平面的非海洋格子。", "No below-sea cells outside the ocean."),
+    at: largest ? [largest.at] : [], cells: sub.cells, dry: sub.dry, lake: sub.lake,
+    desert: sub.desert, componentCount: sub.components.length }];
+  return { checks: C, fails, rate: counted.length ? counted.filter(c => c.pass).length / counted.length : 1, diagnostics };
 }
 
 // ---------- layered score ----------
@@ -1534,7 +1595,7 @@ carve_basin(region)  — dig a shallow basin in a region; after fill_depressions
 set_river_threshold(value)  — flow accumulation needed to draw a river (current value given). Lower = a denser network everywhere, so it is a last resort: when channels end in closed basins, fill_depressions alone usually creates the major rivers, so fill first and look. Lowering is refused in the round that also fills, and while there are enough major rivers and every settlement needing a river has one in its region; it can drop by at most 40% per call (60% while major rivers are missing) and never below the climate's floor, which keeps dry lands to a few large rivers. For a town that must be on a river, move_settlement it with nearest_river instead.
 set_sea_level(value)  — 0.30–0.50. Higher floods more coast.
 move_settlement(id, targets)  — move a settlement to the nearest flat dry cell satisfying ALL targets. targets: array of nearest_coast | nearest_river | nearest_river_mouth | nearest_lake | near_mountain | flattest_nearby | region:<R>. The settlement's spec region is preferred automatically.
-declare_unsatisfiable(check_id, reason)  — mark a check as impossible to satisfy and stop trying.
+declare_unsatisfiable(check_id, reason)  — record that a check could not be satisfied. The executor does not verify this claim; use it only with a concrete reason.
 set_landform(landform)  — rebuild land and sea from another template. With sea: coast | bay (coast with one large gulf) | two_coasts (sea on two sides) | continent (ringed by sea) | archipelago | islands | peninsula | isthmus | inland_sea | fjords | volcanic_island | shattered. Landlocked: plains (low, flat, open) | basin (lowland ringed by mountains) | lakeland (many lakes) | highland (raised, rugged, cold plateau with a rift). A landlocked world can only switch to another landlocked template and a world with sea only to another with sea. Towns left at sea are pulled back to land.
 set_climate(temperature, humidity)  — temperature: polar | cold | temperate | warm | hot; humidity: arid | dry | normal | humid. Shifts every biome and sets how much water the land yields: drier and hotter means fewer and shorter rivers, and in a dry or arid climate rivers lose water on the way, so only large ones cross the desert; lakes shrink to what their inflow can keep against evaporation and the rest of each basin dries to salt flat.`;
 // The negotiator's only tool. It is deliberately not in TOOL_DOC: the repair agent edits terrain, the negotiator
@@ -1543,8 +1604,8 @@ const RELAX_DOC = `relax_constraint(target, item, to, reason)  — trade one of 
   target: settlement id.
   item:   the constraint, written exactly as the conflict core writes it ("coast", "river_mouth", "on_river", "lakeside", "near_mountain", "accessible", "defensible", "region:E", "near:S2@4", "downstream:S2").
   to:     the weaker constraint that replaces it, taken from that item's "can_become" list, or null to drop it outright.
-  reason: one Chinese sentence naming what in the description justifies the trade.
-  The tool refuses any item the solver did not put in a conflict core, any swap that is not a weakening, and any call without a reason.`;
+  reason: one sentence in the response language naming what in the description justifies the trade.
+  The tool refuses any item the conflict analysis did not put in a core, any swap that is not a weakening, and any call without a reason.`;
 
 // Lowering the river threshold thickens the whole network at once, so it is the last resort, not the first: there is
 // a floor, one call can cut the value by at most 40% (60% while major rivers are still missing), and it is refused
@@ -1641,7 +1702,7 @@ function applyActions(W, actions) {
         if (!st) { results.push({ a, ok: false, msg: L(`没有聚落 ${sid}`, `no settlement ${sid}`) }); break; }
         if (!ownedItems(spec, st).includes(item)) { results.push({ a, ok: false, msg: L(`${st.name} 没有约束「${item}」`, `${st.name} has no constraint "${item}"`) }); break; }
         if (relaxFind(P, sid, item)) { results.push({ a, ok: false, msg: L(`「${ITEM_ZH(item)}」已经让过一次，不再重复让步`, `"${ITEM_ZH(item)}" has already yielded once`) }); break; }
-        // a trade needs a proof: the item must sit in a minimal unsatisfiable core of this settlement's constraints
+        // a trade needs a conflict under the current reachability approximation
         const cf = analyseConflict(W, st);
         if (!cf || !cf.core.includes(item)) { results.push({ a, ok: false, msg: L(`「${ITEM_ZH(item)}」不在冲突核里，无需让步`, `"${ITEM_ZH(item)}" is not in a conflict core, nothing to yield`) }); break; }
         const to = g.to == null || g.to === "" || g.to === "null" ? null : String(g.to);
@@ -1951,5 +2012,5 @@ function describeSpec(sp) {
     + s.settlements.map(t => `${RG(t.region)}有${TYPE_ZH[t.type]}「${t.name}」${t.requires.length ? `（${t.requires.map(q => REQ_ZH[q]).join("、")}）` : ""}`).join("；") + "。";
 }
 
-if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, softAccept, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
+if (typeof module !== "undefined") module.exports = { setLangCore: l => { LANG = l; }, mapStats, layeredScore, compareScore, rankScore, softAccept, scoreText, CHAR_METRICS, LANDFORMS, LANDFORM_ZH, SCALES, hamlets, randomSpec, quotedNameCoverage, subseaLandDiagnostics, describeSpec, N, NN, normalizeSpec, initParams, derive, verify, applyActions, scriptedStructured, scriptedBlind, scriptedLore, scriptedLoreEntry, mapFacts, checkClaim, REGION_ZH, cellXY, regionOf , geoProfile, geoFields, roadCentrality, hinterland, dominatesDownstream};
 // ===================== END CORE =====================

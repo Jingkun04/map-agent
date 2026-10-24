@@ -1,0 +1,5 @@
+[
+  {"id":"P01","split":"dev","tier":"simple","lang":"zh","author":"internal_pilot","text":"东临大海的温带海岸，至少一条大河入海。东部河口有港口「青湾港」，西部有山脉「青脊山」。"},
+  {"id":"P02","split":"dev","tier":"multi","lang":"zh","author":"internal_pilot","text":"炎热干旱的内陆盆地，四周是山，没有海。中部有绿洲城「沙泉城」，北部山脚有要塞「赤石堡」，至少一条大河流经盆地。"},
+  {"id":"P03","split":"dev","tier":"simple","lang":"zh","author":"internal_pilot","text":"一片没有海的温带平原。中部有城镇「柳城」，北方有一条山脉「云山」。"}
+]

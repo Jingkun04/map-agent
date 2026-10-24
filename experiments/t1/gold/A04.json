@@ -1,0 +1,59 @@
+{
+  "id": "A04",
+  "sea": {
+    "id": "sea",
+    "value": "all",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "环礁港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "潮汐村",
+      "type": "village",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "环礁港",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "coast",
+      "subject": "环礁港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "in_region",
+      "subject": "潮汐村",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "coast",
+      "subject": "潮汐村",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

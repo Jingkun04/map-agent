@@ -1,0 +1,54 @@
+{
+  "id": "A10",
+  "sea": {
+    "id": "sea",
+    "value": "N",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "霜峰",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "北冰港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "霜峰",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "北冰港",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "coast",
+      "subject": "北冰港",
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "cold_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [],
+  "uncheckable": []
+}

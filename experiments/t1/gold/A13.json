@@ -1,0 +1,72 @@
+{
+  "id": "A13",
+  "sea": {
+    "id": "sea",
+    "value": "all",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "雾岬岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "灯塔港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "西礁村",
+      "type": "village",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "雾岬岭",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "灯塔港",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "river_mouth",
+      "subject": "灯塔港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "西礁村",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "coast",
+      "subject": "西礁村",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

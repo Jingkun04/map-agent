@@ -1,0 +1,78 @@
+{
+  "id": "A06",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "霜角岭",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "镜湖城",
+      "type": "city",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "白石寨",
+      "type": "fortress",
+      "basis": "explicit"
+    },
+    {
+      "id": "e4",
+      "name": "镜湖",
+      "type": "lake",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "霜角岭",
+      "region": "NW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "镜湖城",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "lakeside",
+      "subject": "镜湖城",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "白石寨",
+      "region": "NW",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "near_mountain",
+      "subject": "白石寨",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_lakes",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

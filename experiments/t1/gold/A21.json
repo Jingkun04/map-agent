@@ -1,0 +1,65 @@
+{
+  "id": "A21",
+  "sea": {
+    "id": "sea",
+    "value": "N",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "北湾港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "苇滩村",
+      "type": "village",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "北湾港",
+      "region": "N",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "river_mouth",
+      "subject": "北湾港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "in_region",
+      "subject": "苇滩村",
+      "region": "C",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "lakeside",
+      "subject": "苇滩村",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "min_major_rivers",
+      "value": 1,
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_lakes",
+      "value": 1,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

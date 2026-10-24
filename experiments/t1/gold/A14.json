@@ -1,0 +1,49 @@
+{
+  "id": "A14",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "旱海港",
+      "type": "port",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "旱海港",
+      "region": "S",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "river_mouth",
+      "subject": "旱海港",
+      "basis": "explicit"
+    }
+  ],
+  "character": [
+    {
+      "id": "ch1",
+      "metric": "desert_share",
+      "level": "high",
+      "basis": "explicit"
+    }
+  ],
+  "impossible": [
+    {
+      "ids": [
+        "sea",
+        "c2"
+      ],
+      "reason": "无海区域要求海港"
+    }
+  ],
+  "uncheckable": []
+}

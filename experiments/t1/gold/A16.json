@@ -1,0 +1,72 @@
+{
+  "id": "A16",
+  "sea": {
+    "id": "sea",
+    "value": "W",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "白塔山",
+      "type": "mountain",
+      "basis": "explicit"
+    },
+    {
+      "id": "e2",
+      "name": "潮湾港",
+      "type": "port",
+      "basis": "explicit"
+    },
+    {
+      "id": "e3",
+      "name": "白塔城",
+      "type": "city",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "mountain_in_region",
+      "subject": "白塔山",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "潮湾港",
+      "region": "W",
+      "basis": "explicit"
+    },
+    {
+      "id": "c3",
+      "kind": "river_mouth",
+      "subject": "潮湾港",
+      "basis": "explicit"
+    },
+    {
+      "id": "c4",
+      "kind": "in_region",
+      "subject": "白塔城",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c5",
+      "kind": "near_mountain",
+      "subject": "白塔城",
+      "basis": "explicit"
+    },
+    {
+      "id": "c6",
+      "kind": "min_major_rivers",
+      "value": 2,
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [],
+  "uncheckable": []
+}

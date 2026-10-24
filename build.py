@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 SRC = ROOT / "src"
-ORDER = ["core.js", "presets.js", "city.js", "bench.js", "view3d.js", "gamemap.js", "ui.js"]  # load order matters
+ORDER = ["core.js", "presets.js", "city.js", "bench.js", "view3d.js", "gamemap.js", "agent-model.js", "ui.js"]  # load order matters
 
 js = "\n".join((SRC / f).read_text(encoding="utf-8") for f in ORDER)
 assert "</script" not in js, "a source file contains </script>, which would break the inline bundle"

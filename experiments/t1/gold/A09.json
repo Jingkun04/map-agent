@@ -1,0 +1,43 @@
+{
+  "id": "A09",
+  "sea": {
+    "id": "sea",
+    "value": "none",
+    "basis": "explicit"
+  },
+  "entities": [
+    {
+      "id": "e1",
+      "name": "两界镇",
+      "type": "town",
+      "basis": "explicit"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "c1",
+      "kind": "in_region",
+      "subject": "两界镇",
+      "region": "E",
+      "basis": "explicit"
+    },
+    {
+      "id": "c2",
+      "kind": "in_region",
+      "subject": "两界镇",
+      "region": "W",
+      "basis": "explicit"
+    }
+  ],
+  "character": [],
+  "impossible": [
+    {
+      "ids": [
+        "c1",
+        "c2"
+      ],
+      "reason": "同一个地点必须同时位于不同九宫区域"
+    }
+  ],
+  "uncheckable": []
+}
